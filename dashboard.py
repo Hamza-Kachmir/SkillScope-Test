@@ -48,17 +48,20 @@ st.markdown("---")
 _left_margin, content_col, _right_margin = st.columns([0.2, 0.6, 0.2])
 
 with content_col:
-    # --- Barre de recherche ---
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        job_to_scrape = st.text_input("Quel métier analyser ?", placeholder="Ex: Data Engineer...", label_visibility="collapsed")
-    with col2:
-        launch_button = st.button("Lancer l'analyse", type="primary", use_container_width=True, disabled=(not job_to_scrape))
+    # --- MODIFICATION: Barre de recherche dans un formulaire ---
+    with st.form(key='search_form'):
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            job_to_scrape = st.text_input("Quel métier analyser ?", placeholder="Ex: Data Engineer...", label_visibility="collapsed")
+        with col2:
+            # MODIFICATION: Utilisation de st.form_submit_button
+            submitted = st.form_submit_button("Lancer l'analyse", type="primary", use_container_width=True)
     
     placeholder = st.empty()
 
-    # --- Logique de Lancement ---
-    if launch_button:
+    # --- MODIFICATION: Logique de Lancement basée sur la soumission du formulaire ---
+    if submitted and job_to_scrape:
+        # On nettoie les anciens résultats avant de lancer une nouvelle analyse
         for key in ['df_results', 'error_message', 'log_messages']:
             if key in st.session_state: del st.session_state[key]
         st.session_state['job_title'] = job_to_scrape
