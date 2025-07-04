@@ -13,6 +13,10 @@ def _fetch_all_esco_skills() -> list[str]:
     
     skill_scheme_uri = "http://data.europa.eu/esco/concept-scheme/skills"
     
+    headers = {
+        'Accept': 'application/json'
+    }
+    
     logging.info("Début du téléchargement des compétences depuis l'API ESCO...")
     
     while True:
@@ -20,10 +24,11 @@ def _fetch_all_esco_skills() -> list[str]:
             "isInScheme": skill_scheme_uri,
             "language": "fr",
             "limit": limit,
-            "offset": offset
+            "offset": offset,
+            "selectedVersion": "v1.2"
         }
         try:
-            response = requests.get(ESCO_API_URL, params=params, timeout=30)
+            response = requests.get(ESCO_API_URL, params=params, headers=headers, timeout=30)
             response.raise_for_status()
             data = response.json()
             
