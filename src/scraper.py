@@ -22,7 +22,7 @@ class WTTJScraper:
     """
     Un scraper pour Welcome to the Jungle utilisant Selenium.
     """
-    def __init__(self, headless: bool = True, wait_time: int = 45):
+    def __init__(self, headless: bool = True, wait_time: int = 15):
         """
         Initialise le scraper et le driver Selenium.
         """
