@@ -6,7 +6,6 @@ import time
 import random
 import logging
 from urllib.parse import quote_plus
-# from datetime import datetime # TU PEUX SUPPRIMER CET IMPORT MAINTENANT SI TU LE SOUHAITES, CAR ON N'ÉCRIT PLUS DE FICHIER
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -27,6 +26,7 @@ class WTTJScraper:
         """
         Initialise le scraper et le driver Selenium.
         """
+        logging.info("WTTJScraper: Initialisation en cours...")
         self.wait_time = wait_time
         self.driver = self._setup_driver(headless)
         self.cookies = None
@@ -82,7 +82,7 @@ class WTTJScraper:
             logging.info(f"Navigation vers l'URL de recherche : {search_url}")
             self.driver.get(search_url)
 
-            # --- DÉBUT DU BLOC DE DÉBOGAGE MODIFIÉ ---
+            # --- DÉBUT DU BLOC DE DÉBOGAGE MODIFIÉ POUR STREAMLIT LOGS ---
             try:
                 # Attend juste un instant pour que le rendu initial se fasse
                 time.sleep(2)
