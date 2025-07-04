@@ -5,10 +5,12 @@ import base64
 import os
 import logging
 
-# Import des fonctions du pipeline avec les noms corrects
+# Import des fonctions du pipeline maintenant séparées
 from src.pipeline import search_all_sources, process_offers
 from src.log_handler import setup_log_capture
-from src.apec_api import test_single_url_apec_extraction # Import pour le test APEC
+# Suppression de l'import de apec_api car sa logique est maintenant dans scraper.py
+# from src.apec_api import test_single_url_apec_extraction # NOUVEL IMPORT pour le test APEC
+from src.scraper import APECScraper, get_apec_job_details # Ré-import de la fonction de test si besoin
 
 # --- Configuration de la Page ---
 st.set_page_config(
@@ -62,18 +64,25 @@ with content_col:
     st.markdown("---")
     st.subheader("Test d'Extraction APEC (DEBUG)")
     test_url = "https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/176643425W?motsCles=ux%20d%C3%A9signer&typesConvention=143684&typesConvention=143685&typesConvention=143686&typesConvention=143687&page=0&selectedIndex=0"
-    if st.button("Lancer le test sur l'URL APEC spécifique"): # Texte du bouton changé
-        for key in ['test_log_messages', 'extracted_skills_test']: # Nettoyer les anciennes clés de test
+    if st.button("Lancer le test sur l'URL APEC spécifique"):
+        for key in ['test_log_messages', 'extracted_skills_test']: 
             if key in st.session_state: del st.session_state[key]
         with st.spinner("Extraction des compétences depuis l'URL APEC de test..."):
             with setup_log_capture() as log_capture_stream_test:
-                extracted_skills = test_single_url_apec_extraction(test_url) # Appel de la fonction
-                st.session_state['extracted_skills_test'] = extracted_skills # Stockage des compétences
+                # Appeler directement la fonction de détail APEC avec les cookies d'une session bidon si nécessaire
+                # Ou la rendre testable sans cookies pour ce cas de débogage
+                # Pour l'instant, on fait un appel direct sans se préoccuper des cookies ici pour le test unique
+                # Si get_apec_job_details a besoin de cookies, ce test sera limité.
+                # Une meilleure approche serait d'avoir APECScraper.search_and_scrape_job_urls pour un test complet.
+                # Pour ce test unitaire, on peut simuler les cookies si nécessaire ou laisser la fonction les gérer en interne.
+                # Pour la démonstration, on va juste appeler get_apec_job_details avec une liste de cookies vide.
+                extracted_skills = get_apec_job_details(test_url, []) # Simule l'appel avec des cookies vides
+                st.session_state['extracted_skills_test'] = extracted_skills['tags'] # Les tags sont dans le dictionnaire retourné
                 st.session_state['test_log_messages'] = log_capture_stream_test.getvalue()
         st.rerun()
 
     if 'extracted_skills_test' in st.session_state:
-        st.write(f"Compétences extraites de l'URL de test: {st.session_state['extracted_skills_test']}") # Affichage des compétences
+        st.write(f"Compétences extraites de l'URL de test: {st.session_state['extracted_skills_test']}")
     if 'test_log_messages' in st.session_state:
         with st.expander("Logs du test d'extraction APEC"):
             st.code(st.session_state['test_log_messages'], language='log')
@@ -84,14 +93,15 @@ with content_col:
     # Logique exécutée au clic sur le bouton de lancement principal
     if launch_button:
         # Nettoie la session pour une nouvelle analyse.
-        for key in ['df_results', 'error_message', 'log_messages', 'test_log_messages', 'extracted_skills_test']: # Ajout des clés de test à nettoyer
+        for key in ['df_results', 'error_message', 'log_messages', 'test_log_messages', 'extracted_skills_test']: 
             if key in st.session_state: del st.session_state[key]
         st.session_state['job_title'] = job_to_scrape
 
         with placeholder.container(), setup_log_capture() as log_capture_stream:
             # Spinner pour la phase de recherche.
             with st.spinner(f"Recherche des offres pour **{job_to_scrape}**..."):
-                all_offers, _ = search_all_sources(job_to_scrape)
+                # search_all_sources retourne maintenant les offres et les cookies APEC de Selenium
+                all_offers, apec_cookies = search_all_sources(job_to_scrape) 
 
             # Si la recherche a trouvé des offres, on lance l'analyse.
             if all_offers:
@@ -101,7 +111,8 @@ with content_col:
                 def progress_callback(progress_percentage):
                     progress_bar.progress(progress_percentage, text=f"{progress_text} ({int(progress_percentage * 100)}%)")
 
-                df_results = process_offers(all_offers, None, progress_callback)
+                # On passe les cookies APEC récupérés par Selenium à process_offers
+                df_results = process_offers(all_offers, apec_cookies, progress_callback)
 
                 if df_results is not None and not df_results.empty:
                     st.session_state['df_results'] = df_results
@@ -160,9 +171,6 @@ st.markdown("---")
 st.markdown("""
 <div style="text-align: center; font-family: 'Source Sans Pro', sans-serif; margin-top: 40px;">
     <p style="font-size: 0.9em; margin-bottom: 10px;">Développé par <strong style="color: #2474c5;">Hamza Kachmir</strong></p>
-    <p style="font-size: 1.1em;">
-        <a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="text-decoration: none; margin-right: 15px;"><strong style="color: #F9B15C;">Portfolio</strong></a>
-        <a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="text-decoration: none;"><strong style="color: #F9B15C;">LinkedIn</strong></a>
-    </p>
+    <p style="font-size: 1.1em;"><a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="text-decoration: none; margin-right: 15px;"><strong style="color: #F9B15C;">Portfolio</strong></a><a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="text-decoration: none;"><strong style="color: #F9B15C;">LinkedIn</strong></a></p>
 </div>
 """, unsafe_allow_html=True)
