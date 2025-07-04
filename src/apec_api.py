@@ -4,44 +4,55 @@ from bs4 import BeautifulSoup
 import time
 import random
 from typing import List, Dict
-import re
+import re # Important : Assurez-vous que 're' est toujours importé
 
 from src.config import HEADERS
 
 API_URL = "https://www.apec.fr/cms/webservices/rechercheOffre"
 BASE_URL = "https://www.apec.fr"
 
-# MODIFICATION TEMPORAIRE : Cette fonction retournera le HTML brut pour le débogage.
-# Elle sera remise à jour pour extraire les compétences une fois le HTML inspecté.
-def _get_apec_offer_details_from_html(offer_url: str) -> str: # Changement du type de retour à 'str'
+def _get_apec_offer_details_from_html(offer_url: str) -> List[str]: # Type de retour remis à List[str]
     """
-    Scrape une page d'offre APEC et retourne son contenu HTML brut pour débogage.
+    Scrape une page d'offre APEC pour extraire les compétences détaillées
+    des sections "Langues", "Savoir-être", "Savoir-faire".
     """
+    skills_found = set()
     try:
         time.sleep(random.uniform(0.5, 1.5))
-        logging.info(f"APEC HTML Scraper (DEBUG) : Tentative de récupération HTML pour {offer_url}")
+        logging.info(f"APEC HTML Scraper : Tentative de récupération des détails pour {offer_url}")
         response = requests.get(offer_url, headers=HEADERS, timeout=10)
         response.raise_for_status()
 
-        if "L'offre que vous souhaitez afficher n'est plus disponible" in response.text:
-            logging.warning(f"APEC HTML Scraper (DEBUG) : L'offre {offer_url} n'est plus disponible. Retourne HTML vide.")
-            return "<html><body><p>Offre non disponible.</p></body></html>" # Retourne un HTML simple pour indiquer
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        if "L'offre que vous souhaitez afficher n'est plus disponible" in soup.get_text():
+            logging.warning(f"APEC HTML Scraper : L'offre {offer_url} n'est plus disponible.")
+            return []
+
+        # SÉLECTEUR MIS À JOUR : Cibler directement les <p> à l'intérieur de <apec-competence-detail>
+        # Cette balise personnalisée semble être un conteneur fiable pour les noms de compétences.
+        skill_elements = soup.select('apec-competence-detail p')
         
-        logging.info(f"APEC HTML Scraper (DEBUG) : HTML récupéré pour {offer_url}. Taille : {len(response.text)} caractères.")
-        return response.text # Retourne le texte HTML brut
+        for element in skill_elements:
+            skill_text = element.get_text(strip=True)
+            # Ajout d'une condition pour s'assurer que la compétence n'est pas vide ou juste un chiffre
+            if skill_text and len(skill_text) > 1 and not skill_text.replace('.', '', 1).isdigit(): 
+                skills_found.add(skill_text)
+        
+        logging.info(f"APEC HTML Scraper : {len(skills_found)} compétences extraites de {offer_url}.")
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"APEC HTML Scraper (DEBUG) : Erreur lors de la récupération HTML de {offer_url}: {e}")
-        return f"<html><body><p>Erreur de récupération HTML: {e}</p></body></html>"
+        logging.error(f"APEC HTML Scraper : Erreur lors du scraping de {offer_url}: {e}")
     except Exception as e:
-        logging.error(f"APEC HTML Scraper (DEBUG) : Erreur inattendue lors de la récupération HTML de {offer_url}: {e}", exc_info=True)
-        return f"<html><body><p>Erreur inattendue: {e}</p></body></html>"
+        logging.error(f"APEC HTML Scraper : Erreur inattendue lors de l'extraction des compétences de {offer_url}: {e}", exc_info=True)
+    
+    return sorted(list(skills_found))
 
 
 def search_apec_offers(search_term: str, num_offers: int = 200) -> list[dict]:
     """
     Interroge directement l'API de l'APEC pour récupérer les offres.
-    Ensuite, récupère le HTML des pages de détail (pour débogage, ne pas extraire les compétences ici directement).
+    Ensuite, scrape les pages de détail pour récupérer les compétences structurées.
     """
     payload = {
         "motsCles": search_term,
@@ -64,33 +75,30 @@ def search_apec_offers(search_term: str, num_offers: int = 200) -> list[dict]:
             
             description_from_api = offer.get("texteOffre", "")
             
-            # MODIFICATION TEMPORAIRE : Nous ne faisons plus d'extraction de tags ici,
-            # mais nous récupérons le HTML brut.
-            # Cela signifie que les 'tags' resteront vides dans cette phase pour les offres APEC
-            # jusqu'à ce que nous désactivions ce mode de débogage.
-            raw_html_content = _get_apec_offer_details_from_html(detail_url)
-            
+            # Appel de la fonction d'extraction des tags
+            extracted_tags = _get_apec_offer_details_from_html(detail_url)
+
             all_offers_metadata.append({
                 "titre": offer.get("intitule"),
                 "entreprise": offer.get("nomCommercial"),
                 "url": detail_url,
                 "description": description_from_api,
-                "tags": [], # Les tags resteront vides dans ce mode de débogage
-                "raw_html": raw_html_content # Ajout du HTML brut pour débogage
+                "tags": extracted_tags # Les tags seront maintenant peuplés si l'extraction HTML est réussie
             })
-        logging.info(f"APEC : {len(all_offers_metadata)} offres traitées (HTML brut récupéré).")
+        logging.info(f"APEC : {len(all_offers_metadata)} offres traitées avec compétences structurées extraites.")
         return all_offers_metadata
 
     except requests.exceptions.RequestException as e:
         logging.error(f"APEC : Erreur lors de l'appel API initial ou du traitement des offres. {e}", exc_info=True)
         return []
 
-# La fonction test_single_url_apec_extraction utilisera la version temporaire de _get_apec_offer_details_from_html
-def test_single_url_apec_extraction(url: str) -> str: # Changement du type de retour à 'str'
+def test_single_url_apec_extraction(url: str) -> List[str]: # Type de retour remis à List[str]
     """
-    Fonction de test pour récupérer le HTML brut d'une URL APEC spécifique.
+    Fonction de test pour extraire les compétences d'une URL APEC spécifique.
+    Utilise la même logique que _get_apec_offer_details_from_html.
+    Cette fonction est destinée au débogage direct.
     """
-    logging.info(f"Test APEC Extraction: Tentative de récupération HTML brut pour l'URL: {url}")
-    raw_html = _get_apec_offer_details_from_html(url)
-    logging.info(f"Test APEC Extraction: HTML brut récupéré (taille : {len(raw_html)}).")
-    return raw_html
+    logging.info(f"Test APEC Extraction: Tentative d'extraction pour l'URL: {url}")
+    extracted_skills = _get_apec_offer_details_from_html(url)
+    logging.info(f"Test APEC Extraction: Compétences extraites: {extracted_skills}")
+    return extracted_skills

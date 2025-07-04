@@ -58,27 +58,24 @@ with content_col:
     
     placeholder = st.empty()
 
-    # --- Bloc de test temporaire pour la récupération HTML brut APEC (À retirer après le débogage) ---
+    # --- Bloc de test temporaire pour l'extraction APEC (À retirer après le débogage) ---
     st.markdown("---")
-    st.subheader("Test de Récupération HTML APEC (DEBUG)")
+    st.subheader("Test d'Extraction APEC (DEBUG)")
     test_url = "https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/176643425W?motsCles=ux%20d%C3%A9signer&typesConvention=143684&typesConvention=143685&typesConvention=143686&typesConvention=143687&page=0&selectedIndex=0"
-    if st.button("Lancer le test sur l'URL APEC spécifique (HTML brut)"):
-        for key in ['test_log_messages', 'raw_html_content_test']: # Nettoyer les anciennes clés de test
+    if st.button("Lancer le test sur l'URL APEC spécifique"): # Texte du bouton changé
+        for key in ['test_log_messages', 'extracted_skills_test']: # Nettoyer les anciennes clés de test
             if key in st.session_state: del st.session_state[key]
-        with st.spinner("Récupération du HTML brut depuis l'URL APEC de test..."):
+        with st.spinner("Extraction des compétences depuis l'URL APEC de test..."):
             with setup_log_capture() as log_capture_stream_test:
-                raw_html = test_single_url_apec_extraction(test_url)
-                st.session_state['raw_html_content_test'] = raw_html
+                extracted_skills = test_single_url_apec_extraction(test_url) # Appel de la fonction
+                st.session_state['extracted_skills_test'] = extracted_skills # Stockage des compétences
                 st.session_state['test_log_messages'] = log_capture_stream_test.getvalue()
         st.rerun()
 
-    if 'raw_html_content_test' in st.session_state:
-        st.info("HTML brut récupéré. Défilez pour voir le contenu ou ouvrez les logs.", icon="📄")
-        # st.code(st.session_state['raw_html_content_test'], language='html', line_numbers=True)
-        # Utiliser st.text_area pour éviter les problèmes de rendu de très grand HTML avec st.code
-        st.text_area("Contenu HTML brut", st.session_state['raw_html_content_test'], height=300)
+    if 'extracted_skills_test' in st.session_state:
+        st.write(f"Compétences extraites de l'URL de test: {st.session_state['extracted_skills_test']}") # Affichage des compétences
     if 'test_log_messages' in st.session_state:
-        with st.expander("Logs du test de récupération HTML APEC"):
+        with st.expander("Logs du test d'extraction APEC"):
             st.code(st.session_state['test_log_messages'], language='log')
     st.markdown("---")
     # --- Fin du bloc de test temporaire ---
@@ -87,16 +84,13 @@ with content_col:
     # Logique exécutée au clic sur le bouton de lancement principal
     if launch_button:
         # Nettoie la session pour une nouvelle analyse.
-        for key in ['df_results', 'error_message', 'log_messages', 'test_log_messages', 'raw_html_content_test']: # Ajout des clés de test à nettoyer
+        for key in ['df_results', 'error_message', 'log_messages', 'test_log_messages', 'extracted_skills_test']: # Ajout des clés de test à nettoyer
             if key in st.session_state: del st.session_state[key]
         st.session_state['job_title'] = job_to_scrape
 
         with placeholder.container(), setup_log_capture() as log_capture_stream:
             # Spinner pour la phase de recherche.
             with st.spinner(f"Recherche des offres pour **{job_to_scrape}**..."):
-                # ATTENTION : En mode DEBUG, les offres APEC n'auront pas de tags extraits.
-                # Ils auront le HTML brut dans la colonne 'raw_html' au lieu de tags.
-                # Cela affectera les résultats de l'analyse principale tant que vous êtes en mode debug.
                 all_offers, _ = search_all_sources(job_to_scrape)
 
             # Si la recherche a trouvé des offres, on lance l'analyse.
@@ -107,9 +101,6 @@ with content_col:
                 def progress_callback(progress_percentage):
                     progress_bar.progress(progress_percentage, text=f"{progress_text} ({int(progress_percentage * 100)}%)")
 
-                # ATTENTION : process_offers s'attend à des tags dans les offres.
-                # Si vous testez avec des offres APEC qui n'ont que du HTML brut,
-                # l'analyse principale ne trouvera pas de compétences APEC.
                 df_results = process_offers(all_offers, None, progress_callback)
 
                 if df_results is not None and not df_results.empty:
