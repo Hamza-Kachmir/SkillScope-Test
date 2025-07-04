@@ -17,7 +17,7 @@ def _get_apec_offer_details_from_html(offer_url: str) -> List[str]:
     """
     skills_found = set()
     try:
-        time.sleep(random.uniform(1, 3)) # Délai pour éviter le blocage
+        time.sleep(random.uniform(0.5, 1.5)) # Délai ajusté pour être un peu plus rapide
         logging.info(f"APEC HTML Scraper : Tentative de récupération des détails pour {offer_url}")
         response = requests.get(offer_url, headers=HEADERS, timeout=10)
         response.raise_for_status() # Lève une exception pour les codes d'état HTTP erreurs (4xx ou 5xx)
@@ -89,3 +89,14 @@ def search_apec_offers(search_term: str, num_offers: int = 200) -> list[dict]:
     except requests.exceptions.RequestException as e:
         logging.error(f"APEC : Erreur lors de l'appel API initial ou du traitement des offres. {e}")
         return []
+
+def test_single_url_apec_extraction(url: str) -> List[str]:
+    """
+    Fonction de test pour extraire les compétences d'une URL APEC spécifique.
+    Utilise la même logique que _get_apec_offer_details_from_html.
+    Cette fonction est destinée au débogage direct.
+    """
+    logging.info(f"Test APEC Extraction: Tentative d'extraction pour l'URL: {url}")
+    extracted_skills = _get_apec_offer_details_from_html(url)
+    logging.info(f"Test APEC Extraction: Compétences extraites: {extracted_skills}")
+    return extracted_skills

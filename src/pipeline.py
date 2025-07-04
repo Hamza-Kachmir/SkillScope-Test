@@ -130,12 +130,8 @@ def enrich_offers_from_description(df: pd.DataFrame, skill_set: set) -> pd.DataF
     
     compiled_skill_patterns = {}
     for skill in skill_set:
-        # Créer une regex plus flexible pour les compétences multi-mots
         # Utilisation de get_canonical_form pour normaliser les compétences et améliorer la correspondance
         normalized_skill = get_canonical_form(skill) # Normalise la compétence pour le pattern
-        # Le pattern doit chercher la forme normalisée ou une variante proche dans le texte
-        # Pour l'instant, on cherche la compétence telle quelle, en ignorant la casse et les espaces multiples.
-        # Si get_canonical_form modifie "Python" en "python", la regex cherchera "python".
         pattern = r'\b' + re.escape(normalized_skill.lower()).replace(r'\ ', r'\s*') + r'\b'
         compiled_skill_patterns[skill] = re.compile(pattern)
 
