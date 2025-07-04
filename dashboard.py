@@ -5,8 +5,8 @@ import base64
 import os
 import logging
 
-# Import des fonctions du pipeline maintenant séparées
-from src.pipeline import search_all_sources, process_offers
+# Import des fonctions du pipeline avec les noms corrects
+from src.pipeline import search_all_sources, process_offers # Correction des noms des fonctions importées
 from src.log_handler import setup_log_capture
 
 # --- Configuration de la Page ---
@@ -41,7 +41,7 @@ st.markdown("""
 Un outil pour extraire et quantifier les compétences les plus demandées sur le marché.<br>
 <em>Basé sur <strong>APEC</strong> et enrichi avec <strong>France Travail</strong>.</em>
 </div>
-""", unsafe_allow_html=True) # Texte mis à jour pour APEC
+""", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- Conteneur principal ---
@@ -69,7 +69,6 @@ with content_col:
             # --- Étape 1 : Spinner pour la recherche ---
             with placeholder.container():
                 with st.spinner(f"Recherche des offres pour **{job_to_scrape}**..."):
-                    # cookies n'est plus retourné, la fonction renvoie maintenant all_offers et None
                     all_offers, _ = search_all_sources(job_to_scrape) 
 
             # --- Étape 2 : Barre de progression pour l'analyse ---
@@ -80,7 +79,6 @@ with content_col:
                         text = f"Analyse des compétences en cours... Patientez. ({int(value * 100)}%)"
                         progress_bar.progress(value, text=text)
                     
-                    # cookies n'est plus passé à process_offers
                     df_results = process_offers(all_offers, None, progress_callback) 
                     
                     if df_results is not None and not df_results.empty:

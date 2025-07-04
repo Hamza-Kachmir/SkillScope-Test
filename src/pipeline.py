@@ -6,7 +6,7 @@ from typing import Callable
 import streamlit as st
 
 # Suppression de WTTJScraper et get_job_details
-from src.apec_api import search_apec_offers # Import mis à jour vers apec_api
+from src.apec_api import search_apec_offers # Correction du nom du module importé
 from src.france_travail_api import FranceTravailClient
 
 # La fonction _run_wttj_scraper est supprimée car WTTJ est retiré
