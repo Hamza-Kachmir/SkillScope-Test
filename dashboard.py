@@ -121,7 +121,11 @@ with content_col:
             st.info("Lancez une analyse pour afficher les résultats !", icon="💡")
 
 # --- Logs et Footer ---
+st.markdown("---")
+with st.expander("Voir les logs d'exécution", expanded=False):
+    st.code(st.session_state.get('log_messages', "Aucun log pour le moment."), language='log')
 
+st.markdown("---")
 st.markdown("""
 <div style="text-align: center; font-family: 'Source Sans Pro', sans-serif;">
     <p style="font-size: 0.9em;">Développé par <strong style="color: #2474c5;">Hamza Kachmir</strong></p>
