@@ -30,7 +30,9 @@ def _fetch_all_esco_skills() -> list[str]:
                 break
             
             for skill in results:
-                skills.add(skill['preferredLabel'])
+                label = skill.get('preferredLabel')
+                if label:
+                    skills.add(label)
             
             logging.info(f"{len(skills)} compétences téléchargées...")
             
