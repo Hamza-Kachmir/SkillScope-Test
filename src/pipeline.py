@@ -14,7 +14,7 @@ def search_france_travail_offers(search_term: str, logger: logging.Logger) -> li
             client_secret=st.secrets["FT_CLIENT_SECRET"], 
             logger=logger
         )
-        return client.search_offers(search_term, max_offers=250)
+        return client.search_offers(search_term, max_offers=150)
     except Exception as e:
         logger.error(f"Échec de l'appel à l'API France Travail : {e}")
         return []
