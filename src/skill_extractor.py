@@ -1,6 +1,7 @@
 import pandas as pd
 import logging
 import os
+import re
 
 SKILLS_SET = set()
 CSV_PATH = "assets/skills_fr.csv"
@@ -29,6 +30,13 @@ def extract_skills_from_text(text: str) -> set[str]:
 
     text_lower = text.lower()
     
-    found_skills = {skill for skill in SKILLS_SET if len(skill) > 2 and f' {skill} ' in f' {text_lower} '}
+    # On normalise le texte pour ne garder que les mots et espaces
+    # et on s'assure qu'il est entouré d'espaces pour bien trouver les mots au début/fin.
+    normalized_text = ' ' + re.sub(r'[^a-z0-9\s-]', ' ', text_lower) + ' '
+    
+    found_skills = {
+        skill for skill in SKILLS_SET 
+        if len(skill) > 2 and f' {skill} ' in normalized_text
+    }
     
     return found_skills
