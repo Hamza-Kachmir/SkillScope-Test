@@ -6,6 +6,7 @@ import time
 import random
 import logging
 from urllib.parse import quote_plus
+from datetime import datetime # NOUVEL IMPORT À AJOUTER
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -80,6 +81,21 @@ class WTTJScraper:
             search_url = f"{BASE_WTTJ_URL}/fr/jobs?query={search_term_encoded}&page={page_number}"
             logging.info(f"Navigation vers l'URL de recherche : {search_url}")
             self.driver.get(search_url)
+
+            # --- DÉBUT DU BLOC DE DÉBOGAGE AJOUTÉ ---
+            try:
+                # Attend juste un instant pour que le rendu initial se fasse, sans dépendre d'un sélecteur spécifique
+                time.sleep(2)
+                logging.info(f"Tentative d'enregistrement du HTML de la page {page_number} pour débogage.")
+                # Nomme le fichier avec la date et l'heure pour ne pas écraser
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                debug_filename = f"page_{page_number}_debug_{timestamp}.html"
+                with open(debug_filename, "w", encoding="utf-8") as f:
+                    f.write(self.driver.page_source)
+                logging.info(f"HTML de la page {page_number} enregistré sous {debug_filename}.")
+            except Exception as html_save_e:
+                logging.warning(f"Impossible d'enregistrer le HTML de débogage: {html_save_e}")
+            # --- FIN DU BLOC DE DÉBOGAGE AJOUTÉ ---
 
             try:
                 self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, SEARCH_RESULTS_SELECTOR)))
