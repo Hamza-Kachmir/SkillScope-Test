@@ -39,9 +39,9 @@ else:
 st.markdown("""
 <div style='text-align: center;'>
 Un outil pour extraire et quantifier les compétences les plus demandées sur le marché.<br>
-<em>Basé sur <strong>Welcome to the Jungle</strong> et enrichi avec <strong>France Travail</strong>.</em>
+<em>Basé sur <strong>APEC</strong> et enrichi avec <strong>France Travail</strong>.</em>
 </div>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True) # Texte mis à jour pour APEC
 st.markdown("---")
 
 # --- Conteneur principal ---
@@ -69,7 +69,8 @@ with content_col:
             # --- Étape 1 : Spinner pour la recherche ---
             with placeholder.container():
                 with st.spinner(f"Recherche des offres pour **{job_to_scrape}**..."):
-                    all_offers, cookies = search_all_sources(job_to_scrape, logger)
+                    # cookies n'est plus retourné, la fonction renvoie maintenant all_offers et None
+                    all_offers, _ = search_all_sources(job_to_scrape) 
 
             # --- Étape 2 : Barre de progression pour l'analyse ---
             if all_offers:
@@ -79,7 +80,8 @@ with content_col:
                         text = f"Analyse des compétences en cours... Patientez. ({int(value * 100)}%)"
                         progress_bar.progress(value, text=text)
                     
-                    df_results = process_offers(all_offers, cookies, progress_callback)
+                    # cookies n'est plus passé à process_offers
+                    df_results = process_offers(all_offers, None, progress_callback) 
                     
                     if df_results is not None and not df_results.empty:
                         st.session_state['df_results'] = df_results
