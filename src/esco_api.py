@@ -9,7 +9,7 @@ ESCO_API_URL = "https://ec.europa.eu/esco/api/resource/skills"
 def _fetch_all_esco_skills() -> list[str]:
     skills = set()
     offset = 0
-    limit = 1000 
+    limit = 100 
     
     logging.info("Début du téléchargement des compétences depuis l'API ESCO...")
     
