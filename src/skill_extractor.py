@@ -2,18 +2,24 @@ import re
 import logging
 from src.esco_api import get_esco_skills
 
-logging.info("Tentative de chargement de la liste de compétences ESCO...")
-ALL_SKILLS = get_esco_skills()
-logging.info(f"Chargement terminé. {len(ALL_SKILLS)} compétences brutes récupérées.")
+REGEX_PATTERN = None
 
-def _build_regex_pattern(skills: list[str]) -> re.Pattern:
-    logging.info("Construction du motif regex...")
+def initialize_extractor():
+    global REGEX_PATTERN
+    if REGEX_PATTERN is not None:
+        logging.info("Extracteur de compétences déjà initialisé.")
+        return
+
+    logging.info("Initialisation de l'extracteur de compétences...")
     
-    # On filtre les compétences vides ou invalides
-    valid_skills = [skill for skill in skills if isinstance(skill, str) and skill.strip()]
+    ALL_SKILLS = get_esco_skills()
+    
+    logging.info(f"Construction du motif regex à partir de {len(ALL_SKILLS)} compétences...")
+    valid_skills = [skill for skill in ALL_SKILLS if isinstance(skill, str) and skill.strip()]
     if not valid_skills:
         logging.error("Aucune compétence valide trouvée pour construire le motif regex.")
-        return None
+        REGEX_PATTERN = re.compile(r'a^') # Un regex qui ne matche jamais rien
+        return
         
     logging.info(f"{len(valid_skills)} compétences valides utilisées pour la regex.")
     
@@ -21,12 +27,9 @@ def _build_regex_pattern(skills: list[str]) -> re.Pattern:
     
     pattern_string = r'\b(' + '|'.join(escaped_skills) + r')\b'
     
-    compiled_regex = re.compile(pattern_string, re.IGNORECASE)
-    
-    logging.info("Motif regex construit avec succès.")
-    return compiled_regex
+    REGEX_PATTERN = re.compile(pattern_string, re.IGNORECASE)
+    logging.info("Motif regex construit et initialisé avec succès.")
 
-REGEX_PATTERN = _build_regex_pattern(ALL_SKILLS)
 
 def extract_skills_from_text(text: str) -> set[str]:
     if not text or not REGEX_PATTERN:

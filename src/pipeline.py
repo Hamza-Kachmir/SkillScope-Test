@@ -4,7 +4,7 @@ from typing import Callable
 import streamlit as st
 
 from src.france_travail_api import FranceTravailClient
-from src.skill_extractor import extract_skills_from_text
+from src.skill_extractor import extract_skills_from_text, initialize_extractor
 
 def search_france_travail_offers(search_term: str, logger: logging.Logger) -> list[dict]:
     try:
@@ -22,6 +22,8 @@ def search_france_travail_offers(search_term: str, logger: logging.Logger) -> li
 def process_offers(all_offers: list[dict], progress_callback: Callable[[float], None]) -> pd.DataFrame | None:
     if not all_offers:
         return None
+    
+    initialize_extractor()
     
     total_offers = len(all_offers)
     processed_offers = []
