@@ -6,7 +6,7 @@ import time
 import random
 import logging
 from urllib.parse import quote_plus
-from datetime import datetime # NOUVEL IMPORT À AJOUTER
+# from datetime import datetime # TU PEUX SUPPRIMER CET IMPORT MAINTENANT SI TU LE SOUHAITES, CAR ON N'ÉCRIT PLUS DE FICHIER
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -82,20 +82,30 @@ class WTTJScraper:
             logging.info(f"Navigation vers l'URL de recherche : {search_url}")
             self.driver.get(search_url)
 
-            # --- DÉBUT DU BLOC DE DÉBOGAGE AJOUTÉ ---
+            # --- DÉBUT DU BLOC DE DÉBOGAGE MODIFIÉ ---
             try:
-                # Attend juste un instant pour que le rendu initial se fasse, sans dépendre d'un sélecteur spécifique
+                # Attend juste un instant pour que le rendu initial se fasse
                 time.sleep(2)
-                logging.info(f"Tentative d'enregistrement du HTML de la page {page_number} pour débogage.")
-                # Nomme le fichier avec la date et l'heure pour ne pas écraser
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                debug_filename = f"page_{page_number}_debug_{timestamp}.html"
-                with open(debug_filename, "w", encoding="utf-8") as f:
-                    f.write(self.driver.page_source)
-                logging.info(f"HTML de la page {page_number} enregistré sous {debug_filename}.")
-            except Exception as html_save_e:
-                logging.warning(f"Impossible d'enregistrer le HTML de débogage: {html_save_e}")
-            # --- FIN DU BLOC DE DÉBOGAGE AJOUTÉ ---
+                logging.info(f"Début de la capture HTML de la page {page_number}.")
+                
+                # Récupère le HTML de la page
+                page_html_content = self.driver.page_source
+                
+                # Affiche le début et la fin du HTML dans les logs (le HTML complet peut être très long)
+                # Tu peux ajuster la taille si tu veux voir plus ou moins de contenu
+                max_log_chars = 5000 # Limite la taille de l'extrait HTML dans les logs
+                
+                if len(page_html_content) > max_log_chars:
+                    logging.info(f"HTML Page {page_number} (Début): {page_html_content[:max_log_chars // 2]}...")
+                    logging.info(f"HTML Page {page_number} (Fin): ...{page_html_content[-max_log_chars // 2:]}")
+                else:
+                    logging.info(f"HTML Page {page_number} (Complet): {page_html_content}")
+                
+                logging.info(f"Fin de la capture HTML de la page {page_number}.")
+
+            except Exception as html_log_e:
+                logging.warning(f"Impossible d'afficher le HTML de débogage dans les logs: {html_log_e}")
+            # --- FIN DU BLOC DE DÉBOGAGE MODIFIÉ ---
 
             try:
                 self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, SEARCH_RESULTS_SELECTOR)))
