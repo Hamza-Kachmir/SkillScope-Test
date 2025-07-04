@@ -9,9 +9,9 @@ logging.info(f"{len(ALL_SKILLS)} compétences chargées.")
 def _build_regex_pattern(skills: list[str]) -> re.Pattern:
     logging.info("Construction du motif regex...")
     
-    escaped_skills = [re.escape(skill) for skill in skills]
+    escaped_skills = [re.escape(skill) for skill in skills if skill]
     
-    pattern_string = r'\\b(' + '|'.join(escaped_skills) + r')\\b'
+    pattern_string = r'\b(' + '|'.join(escaped_skills) + r')\b'
     
     compiled_regex = re.compile(pattern_string, re.IGNORECASE)
     

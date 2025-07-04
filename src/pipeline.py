@@ -4,7 +4,7 @@ from typing import Callable
 import streamlit as st
 
 from src.france_travail_api import FranceTravailClient
-from src.skill_extractor import extract_entities
+from src.skill_extractor import extract_skills_from_text
 
 def search_france_travail_offers(search_term: str, logger: logging.Logger) -> list[dict]:
     try:
@@ -31,7 +31,7 @@ def process_offers(all_offers: list[dict], progress_callback: Callable[[float], 
     for i, offer in enumerate(all_offers):
         description = offer.get('description', '')
         
-        found_skills = extract_entities(description)
+        found_skills = extract_skills_from_text(description)
         
         offer['tags'] = sorted(list(found_skills))
         processed_offers.append(offer)

@@ -34,7 +34,7 @@ else:
 st.markdown("""
 <div style='text-align: center;'>
 Un outil pour extraire et quantifier les compétences les plus demandées sur le marché.<br>
-<em>Basé sur les données de <strong>France Travail</strong>.</em>
+<em>Basé sur les données de <strong>France Travail</strong> et <strong>ESCO</strong>.</em>
 </div>
 """, unsafe_allow_html=True)
 st.markdown("---")
