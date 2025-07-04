@@ -1,6 +1,6 @@
 streamlit
 pandas
 requests
-beautifulsoup4
-selenium
 numpy
+spacy
+https://github.com/explosion/spacy-models/releases/download/fr_core_news_lg-3.7.0/fr_core_news_lg-3.7.0-py3-none-any.whl

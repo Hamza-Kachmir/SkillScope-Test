@@ -2,10 +2,11 @@ import requests
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict
-from src.config import AUTH_URL, API_BASE_URL
+
+AUTH_URL = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"
+API_BASE_URL = "https://api.francetravail.io/partenaire/offresdemploi"
 
 class FranceTravailClient:
-    """Client pour interagir avec l'API de France Travail."""
     def __init__(self, client_id: str, client_secret: str, logger: logging.Logger):
         self.client_id = client_id
         self.client_secret = client_secret
@@ -14,7 +15,6 @@ class FranceTravailClient:
         self._token_expiry_time = None
 
     def _get_access_token(self) -> bool:
-        """Récupère un nouveau token d'accès auprès de l'API."""
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
         data = {'grant_type': 'client_credentials', 'client_id': self.client_id, 'client_secret': self.client_secret, 'scope': 'o2dsoffre api_offresdemploiv2'}
         try:
@@ -32,11 +32,9 @@ class FranceTravailClient:
             return False
 
     def _is_token_valid(self) -> bool:
-        """Vérifie si le token d'accès actuel est encore valide."""
         return self._access_token and self._token_expiry_time and datetime.now() < self._token_expiry_time
 
     def search_offers(self, search_term: str, max_offers: int = 150) -> List[Dict]:
-        """Recherche les offres d'emploi et les retourne dans un format standardisé."""
         if not self._is_token_valid():
             if not self._get_access_token(): return []
         headers = {'Authorization': f'Bearer {self._access_token}'}
@@ -48,10 +46,15 @@ class FranceTravailClient:
             response.raise_for_status()
             api_results = response.json().get('resultats', [])
             self.logger.info(f"France Travail : {len(api_results)} offres reçues via l'API.")
+            
             formatted_offers = []
             for offer in api_results:
-                skills = {comp['libelle'].strip() for comp in offer.get('competences', []) if comp.get('libelle')}
-                formatted_offers.append({'titre': offer.get('intitule', 'Titre non précisé'), 'entreprise': offer.get('entreprise', {}).get('nom', 'Non précisé'), 'url': offer.get('origineOffre', {}).get('urlOrigine', '#'), 'tags': sorted(list(skills)), 'description': offer.get('description', '')})
+                formatted_offers.append({
+                    'titre': offer.get('intitule', 'Titre non précisé'), 
+                    'entreprise': offer.get('entreprise', {}).get('nom', 'Non précisé'), 
+                    'url': offer.get('origineOffre', {}).get('urlOrigine', '#'), 
+                    'description': offer.get('description', '')
+                })
             return formatted_offers
         except requests.exceptions.RequestException as e:
             self.logger.error(f"France Travail : Erreur lors de la recherche. {e}")
