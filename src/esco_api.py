@@ -4,7 +4,7 @@ import logging
 import os
 
 CACHE_FILE = "esco_skills.json"
-ESCO_API_URL = "https://ec.europa.eu/esco/api/search"
+ESCO_API_URL = "https://ec.europa.eu/esco/api/resource/skills"
 
 def _fetch_all_esco_skills() -> list[str]:
     skills = set()
@@ -15,7 +15,6 @@ def _fetch_all_esco_skills() -> list[str]:
     
     while True:
         params = {
-            "type": "skill",
             "language": "fr",
             "limit": limit,
             "offset": offset
