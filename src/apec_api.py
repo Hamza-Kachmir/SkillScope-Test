@@ -5,7 +5,7 @@ import time
 import random
 from typing import List, Dict
 
-from src.config import HEADERS # Import de HEADERS
+from src.config import HEADERS
 
 API_URL = "https://www.apec.fr/cms/webservices/rechercheOffre"
 BASE_URL = "https://www.apec.fr"
@@ -17,26 +17,32 @@ def _get_apec_offer_details_from_html(offer_url: str) -> List[str]:
     """
     skills_found = set()
     try:
-        time.sleep(random.uniform(0.5, 1.5)) # Délai ajusté pour être un peu plus rapide
+        time.sleep(random.uniform(0.5, 1.5)) 
         logging.info(f"APEC HTML Scraper : Tentative de récupération des détails pour {offer_url}")
         response = requests.get(offer_url, headers=HEADERS, timeout=10)
-        response.raise_for_status() # Lève une exception pour les codes d'état HTTP erreurs (4xx ou 5xx)
+        response.raise_for_status() 
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Vérifier si l'offre n'est plus disponible
         if "L'offre que vous souhaitez afficher n'est plus disponible" in soup.get_text():
             logging.warning(f"APEC HTML Scraper : L'offre {offer_url} n'est plus disponible.")
             return []
 
-        # Cibler les éléments <p> à l'intérieur des divs avec la classe 'highlighted-label-skills'
-        # Ces divs contiennent les listes de compétences sous les titres 'Langues', 'Savoir-être', 'Savoir-faire'.
-        skill_elements = soup.select('div.highlighted-label-skills p')
-        
-        for element in skill_elements:
-            skill_text = element.get_text(strip=True)
-            if skill_text:
-                skills_found.add(skill_text)
+        # Cibler les conteneurs globaux des compétences
+        # Les compétences sont dans ces blocs sous des balises <p>
+        competency_containers = soup.find_all(class_=re.compile(r'added-skills-manager__(language|knowhow|knowledge)'))
+
+        for container in competency_containers:
+            # Chercher toutes les balises <p> à l'intérieur de ces conteneurs
+            # qui ne sont pas des enfants directs de .added-skills-manager
+            # mais qui représentent des compétences
+            # Nous allons chercher spécifiquement les <p> qui sont dans des divs comme 'highlighted-label-skills'
+            skill_paragraphs = container.select('div.highlighted-label-skills p')
+            
+            for p_tag in skill_paragraphs:
+                skill_text = p_tag.get_text(strip=True)
+                if skill_text and len(skill_text) > 1: # S'assurer que ce n'est pas un texte vide ou un seul caractère
+                    skills_found.add(skill_text)
         
         logging.info(f"APEC HTML Scraper : {len(skills_found)} compétences extraites de {offer_url}.")
 
@@ -73,15 +79,14 @@ def search_apec_offers(search_term: str, num_offers: int = 200) -> list[dict]:
             
             description_from_api = offer.get("texteOffre", "")
             
-            # Scraping des compétences structurées depuis la page HTML de l'offre
             extracted_tags = _get_apec_offer_details_from_html(detail_url)
 
             all_offers_metadata.append({
                 "titre": offer.get("intitule"),
                 "entreprise": offer.get("nomCommercial"),
                 "url": detail_url,
-                "description": description_from_api, # Description de l'API
-                "tags": extracted_tags # Tags extraits du HTML (maintenant structurés)
+                "description": description_from_api, 
+                "tags": extracted_tags 
             })
         logging.info(f"APEC : {len(all_offers_metadata)} offres traitées avec compétences structurées extraites.")
         return all_offers_metadata
