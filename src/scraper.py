@@ -6,20 +6,26 @@ import time
 import random
 import logging
 from urllib.parse import quote_plus
-# from datetime import datetime
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+# Import des constantes depuis le fichier de configuration
 from src.config import (
     HEADERS, BASE_WTTJ_URL, SEARCH_RESULTS_SELECTOR,
     JOB_CARD_SELECTOR, COOKIE_BUTTON_ID
 )
 
 class WTTJScraper:
-    def __init__(self, headless: bool = True, wait_time: int = 20):
+    """
+    Un scraper pour Welcome to the Jungle utilisant Selenium.
+    """
+    def __init__(self, headless: bool = True, wait_time: int = 45):
+        """
+        Initialise le scraper et le driver Selenium.
+        """
         self.wait_time = wait_time
         self.driver = self._setup_driver(headless)
         self.cookies = None
@@ -27,43 +33,19 @@ class WTTJScraper:
             self.wait = WebDriverWait(self.driver, self.wait_time)
 
     def _setup_driver(self, headless: bool) -> webdriver.Chrome | None:
+        """
+        Configure et initialise l'instance du driver Chrome.
+        """
         try:
             options = webdriver.ChromeOptions()
             if headless:
                 options.add_argument("--headless=new")
-                options.add_argument("--window-size=1920,1080")
-            
-            # --- DÉBUT DES AJOUTS POUR CONTOURNER LA DÉTECTION ---
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1920,1080")
             options.add_argument("--disable-notifications")
-            options.add_argument("--disable-blink-features=AutomationControlled") # Empêche la détection par la propriété navigator.webdriver
-            options.add_experimental_option("excludeSwitches", ["enable-automation"]) # Supprime l'infobar "Chrome est contrôlé par un logiciel de test"
-            options.add_experimental_option('useAutomationExtension', False) # Désactive l'extension d'automatisation
-            
-            # Change le user-agent pour qu'il ressemble plus à un navigateur normal
-            # Assure-toi que ce User-Agent est à jour. Tu peux le trouver en tapant "my user agent" sur Google.
-            options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
-            
-            # Empêche d'autres détections JavaScript
-            options.add_argument("--disable-extensions")
-            options.add_argument("--incognito") # Mode incognito
-            # --- FIN DES AJOUTS POUR CONTOURNER LA DÉTECTION ---
-
             driver = webdriver.Chrome(options=options)
-            
-            # --- DÉBUT DE L'AJUSTEMENT POST-INITIALISATION ---
-            # Exécute un script JS pour cacher encore plus le mode automation
-            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-                'source': '''
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined
-                    })
-                '''
-            })
-            # --- FIN DE L'AJUSTEMENT POST-INITIALISATION ---
-
             logging.info("Driver Selenium initialisé avec succès.")
             return driver
         except Exception as e:
@@ -71,6 +53,9 @@ class WTTJScraper:
             return None
 
     def _accept_cookies(self):
+        """
+        Clique sur le bouton d'acceptation des cookies.
+        """
         try:
             cookie_button = WebDriverWait(self.driver, 3).until(
                 EC.element_to_be_clickable((By.ID, COOKIE_BUTTON_ID))
@@ -82,6 +67,9 @@ class WTTJScraper:
             logging.info("Bannière de cookies non trouvée ou déjà acceptée.")
 
     def search_and_scrape_jobs(self, search_term: str, num_pages: int = 2) -> list[dict]:
+        """
+        Navigue sur les pages de résultats et extrait les métadonnées des offres.
+        """
         if not self.driver:
             return []
         search_term_encoded = quote_plus(search_term)
@@ -92,25 +80,6 @@ class WTTJScraper:
             search_url = f"{BASE_WTTJ_URL}/fr/jobs?query={search_term_encoded}&page={page_number}"
             logging.info(f"Navigation vers l'URL de recherche : {search_url}")
             self.driver.get(search_url)
-
-            try:
-                time.sleep(2)
-                logging.info(f"Début de la capture HTML de la page {page_number}.")
-                
-                page_html_content = self.driver.page_source
-                
-                max_log_chars = 5000 
-                
-                if len(page_html_content) > max_log_chars:
-                    logging.info(f"HTML Page {page_number} (Début): {page_html_content[:max_log_chars // 2]}...")
-                    logging.info(f"HTML Page {page_number} (Fin): ...{page_html_content[-max_log_chars // 2:]}")
-                else:
-                    logging.info(f"HTML Page {page_number} (Complet): {page_html_content}")
-                
-                logging.info(f"Fin de la capture HTML de la page {page_number}.")
-
-            except Exception as html_log_e:
-                logging.warning(f"Impossible d'afficher le HTML de débogage dans les logs: {html_log_e}")
 
             try:
                 self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, SEARCH_RESULTS_SELECTOR)))
@@ -149,6 +118,9 @@ class WTTJScraper:
             logging.info("Fermeture du driver Selenium."); self.driver.quit(); self.driver = None
 
 def get_job_details(url: str, cookies: list[dict]) -> dict:
+    """
+    Récupère les détails d'une seule offre (description, tags) en utilisant `requests`.
+    """
     time.sleep(random.uniform(0.1, 0.5))
     details = {'description': None, 'tags': []}
     session = requests.Session()
