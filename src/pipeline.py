@@ -2,11 +2,9 @@ import pandas as pd
 import logging
 from typing import Callable
 import streamlit as st
-from concurrent.futures import ThreadPoolExecutor
 
 from src.france_travail_api import FranceTravailClient
-from src.skill_extractor import extract_candidate_skills
-from src.esco_api import is_skill_valid
+from src.skill_extractor import extract_skills_from_text, initialize_extractor
 
 def search_france_travail_offers(search_term: str, logger: logging.Logger) -> list[dict]:
     try:
@@ -25,32 +23,17 @@ def process_offers(all_offers: list[dict], progress_callback: Callable[[float], 
     if not all_offers:
         return None
     
-    full_text = " ".join([offer.get('description', '') for offer in all_offers])
+    initialize_extractor()
     
-    logging.info("Phase 2 : Extraction des compétences candidates avec Regex...")
-    candidate_skills = extract_candidate_skills(full_text)
-    logging.info(f"{len(candidate_skills)} compétences candidates uniques trouvées.")
+    logging.info("Début de l'extraction des compétences pour les offres...")
 
-    logging.info("Phase 3 : Validation des compétences candidates via l'API ESCO...")
-    valid_skills = set()
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        # On passe la liste des candidats au validateur
-        results = executor.map(is_skill_valid, candidate_skills)
-        # On récupère les compétences valides
-        for skill, is_valid in zip(candidate_skills, results):
-            if is_valid:
-                valid_skills.add(skill.lower())
-
-    logging.info(f"{len(valid_skills)} compétences validées par ESCO.")
-
-    logging.info("Phase 4 : Association des compétences validées aux offres.")
     for offer in all_offers:
-        description_lower = offer.get('description', '').lower()
-        
-        offer['tags'] = sorted([skill for skill in valid_skills if skill in description_lower])
+        description = offer.get('description', '')
+        offer['tags'] = sorted(list(extract_skills_from_text(description)))
         
     progress_callback(1.0)
-
+    logging.info("Extraction des compétences terminée.")
+    
     df = pd.DataFrame(all_offers)
     
     final_cols = ['titre', 'entreprise', 'url', 'tags']

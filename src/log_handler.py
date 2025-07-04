@@ -4,7 +4,6 @@ from contextlib import contextmanager
 
 @contextmanager
 def setup_log_capture():
-    """Contexte pour capturer les logs de manière isolée pour une session."""
     log_capture_stream = io.StringIO()
     handler = logging.StreamHandler(log_capture_stream)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
