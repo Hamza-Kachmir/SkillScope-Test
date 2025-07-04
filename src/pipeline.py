@@ -19,10 +19,11 @@ def search_all_sources(search_term: str) -> tuple[list[dict] | None, None]:
         try:
             offers_apec = future_apec.result()
             logging.info(f"APEC : Recherche terminée. {len(offers_apec)} offres trouvées.")
-            # --- Ajout pour débogage : Afficher les 3 premières URLs et début de description APEC ---
+            # --- Ajout pour débogage : Afficher les 3 premières URLs, début de description et TAGS APEC ---
             for i, offer in enumerate(offers_apec[:3]):
                 logging.info(f"APEC Offer {i+1} URL: {offer.get('url', 'N/A')}")
                 logging.info(f"APEC Offer {i+1} Description (partial): {offer.get('description', 'N/A')[:200]}...")
+                logging.info(f"APEC Offer {i+1} Tags (structurés): {offer.get('tags', 'N/A')}") # Afficher les tags extraits
             # -------------------------------------------------------------------------------------
         except Exception as e:
             logging.error(f"Le scraper APEC a échoué: {e}", exc_info=True)
@@ -47,7 +48,7 @@ def search_all_sources(search_term: str) -> tuple[list[dict] | None, None]:
 
 def process_offers(
     offers_metadata: list[dict],
-    cookies: None,
+    cookies: None, # Maintenu pour la compatibilité, mais non utilisé
     progress_callback: Callable[[float], None]
 ) -> pd.DataFrame | None:
     logging.info("--- Phase 2: ANALYSE DÉTAILLÉE ET ENRICHISSEMENT ---")
@@ -57,12 +58,14 @@ def process_offers(
     if not all_detailed_offers: return None
     
     df_offers = pd.DataFrame(all_detailed_offers)
+    # S'assurer que la colonne 'tags' existe et est une liste, même si vide
     if 'tags' not in df_offers.columns:
         df_offers['tags'] = [[] for _ in range(len(df_offers))]
     
-    master_skill_set = set(df_offers['tags'].explode().dropna())
+    # Initialisation du master_skill_set avec les tags déjà extraits (APEC structuré)
+    master_skill_set = set(df_offers['tags'].explode().dropna()) 
     
-    logging.info(f"Dictionnaire de compétences initialisé avec {len(master_skill_set)} compétences (issues d'APEC si présentes ou seront enrichies par France Travail).")
+    logging.info(f"Dictionnaire de compétences initialisé avec {len(master_skill_set)} compétences (issues d'APEC structurées).")
     progress_callback(0.2)
 
     logging.info("France Travail : Lancement de la recherche via l'API.")
@@ -76,48 +79,22 @@ def process_offers(
             if 'tags' not in df_ft.columns:
                 df_ft['tags'] = [[] for _ in range(len(df_ft))]
             logging.info(f"France Travail: {len(df_ft)} offres trouvées.")
-            # --- Ajout pour débogage : Afficher les 3 premières URLs et début de description FT ---
+            # --- Ajout pour débogage : Afficher les 3 premières URLs, début de description et TAGS FT ---
             for i, offer in enumerate(ft_offers[:3]):
                 logging.info(f"France Travail Offer {i+1} URL: {offer.get('url', 'N/A')}")
                 logging.info(f"France Travail Offer {i+1} Description (partial): {offer.get('description', 'N/A')[:200]}...")
+                logging.info(f"France Travail Offer {i+1} Tags (structurés): {offer.get('tags', 'N/A')}") # Afficher les tags extraits
             # ------------------------------------------------------------------------------------
             
+            # Mise à jour du master_skill_set avec les tags de France Travail
             master_skill_set.update(df_ft['tags'].explode().dropna()) 
             logging.info(f"Dictionnaire de compétences après France Travail: {len(master_skill_set)} compétences.")
     except Exception as e:
         logging.error(f"Échec de l'appel à l'API France Travail : {e}")
     progress_callback(0.5)
 
-    # Avant l'enrichissement, nous devons nous assurer que le master_skill_set contient bien toutes les compétences
-    # trouvées jusqu'à présent dans les tags et *potentiellement* identifiées dans les descriptions brutes.
-    # Pour l'instant, l'enrichissement se base sur un skill_set déjà existant.
-    # Le problème des "0 compétences" vient probablement de ce que ce skill_set est vide
-    # au moment où enrich_offers_from_description est appelé pour les offres APEC si France Travail
-    # n'a pas encore peuplé ce set.
-
-    # Re-peupler le master_skill_set avec tous les tags collectés jusqu'ici, avant l'enrichissement
-    # Cela inclura les tags de France Travail (qui sont déjà structurés)
-    # et n'importe quel tag qui aurait pu être ajouté par une future étape d'extraction de compétences
-    # des descriptions APEC, si elle existait.
-
-    # Actuellement, l'enrich_offers_from_description prend un skill_set en entrée
-    # qui est utilisé comme un dictionnaire de compétences connues pour identifier
-    # les compétences dans la description. Si ce skill_set est vide, rien ne sera trouvé.
-
-    # Pour que cela fonctionne, le master_skill_set doit être robuste.
-    # L'approche actuelle est :
-    # 1. Collecter APEC (tags vides)
-    # 2. Initialiser master_skill_set (donc vide)
-    # 3. Collecter FT (tags remplis)
-    # 4. Mettre à jour master_skill_set avec les tags FT (maintenant il contient les tags FT)
-    # 5. Enrichir df_offers (APEC) avec master_skill_set (donc avec les tags FT)
-    # 6. Enrichir df_ft (FT) avec master_skill_set (avec ses propres tags et ceux de APEC)
-    
-    # Si le skill_set reste à 0, cela signifie soit:
-    # - France Travail n'a pas renvoyé de compétences.
-    # - Le traitement des compétences de France Travail est incorrect.
-    # - Les regex dans enrich_offers_from_description ne matchent rien.
-
+    # Maintenant que master_skill_set est potentiellement rempli (par APEC structuré et FT), on peut enrichir
+    # les offres APEC (df_offers) et France Travail (df_ft) en cherchant ces compétences dans les descriptions.
     df_offers = enrich_offers_from_description(df_offers, master_skill_set)
     if df_ft is not None:
         df_ft = enrich_offers_from_description(df_ft, master_skill_set)
@@ -154,24 +131,23 @@ def enrich_offers_from_description(df: pd.DataFrame, skill_set: set) -> pd.DataF
     compiled_skill_patterns = {}
     for skill in skill_set:
         # Créer une regex plus flexible pour les compétences multi-mots
-        # Ex: "Data Science" -> r'\bdata\s*science\b'
         # Utilisation de get_canonical_form pour normaliser les compétences et améliorer la correspondance
-        normalized_skill = get_canonical_form(skill)
-        # La regex doit chercher la forme non-normalisée dans le texte si la normalisation est juste pour le dictionnaire
-        # Si la normalisation est pour le matching, alors le texte doit aussi être normalisé ou la regex adaptée.
-        # Pour le moment, je garde une regex simple qui matche le skill tel quel, en ignorant la casse et les espaces multiples.
-        pattern = r'\b' + re.escape(skill.lower()).replace(r'\ ', r'\s*') + r'\b'
+        normalized_skill = get_canonical_form(skill) # Normalise la compétence pour le pattern
+        # Le pattern doit chercher la forme normalisée ou une variante proche dans le texte
+        # Pour l'instant, on cherche la compétence telle quelle, en ignorant la casse et les espaces multiples.
+        # Si get_canonical_form modifie "Python" en "python", la regex cherchera "python".
+        pattern = r'\b' + re.escape(normalized_skill.lower()).replace(r'\ ', r'\s*') + r'\b'
         compiled_skill_patterns[skill] = re.compile(pattern)
 
     def find_skills(row):
-        found_skills = set(row.get('tags', []))
+        found_skills = set(row.get('tags', [])) # Conserve les tags déjà trouvés (structurés)
         description = row.get('description')
         if not isinstance(description, str): return sorted(list(found_skills))
         description_lower = description.lower()
         
         for skill_name, pattern in compiled_skill_patterns.items():
             if pattern.search(description_lower):
-                found_skills.add(skill_name)
+                found_skills.add(skill_name) # Ajoute la compétence si trouvée dans la description
         return sorted(list(found_skills))
     
     df['tags'] = df.apply(find_skills, axis=1)
