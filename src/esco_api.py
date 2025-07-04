@@ -4,31 +4,24 @@ import logging
 import os
 
 CACHE_FILE = "esco_skills.json"
-ESCO_API_URL = "https://ec.europa.eu/esco/api/resource/skill"
+ESCO_API_URL = "https://ec.europa.eu/esco/api/search"
 
 def _fetch_all_esco_skills() -> list[str]:
     skills = set()
     offset = 0
-    limit = 100 
-    
-    skill_scheme_uri = "http://data.europa.eu/esco/concept-scheme/skills"
-    
-    headers = {
-        'Accept': 'application/json'
-    }
+    limit = 100
     
     logging.info("Début du téléchargement des compétences depuis l'API ESCO...")
     
     while True:
         params = {
-            "isInScheme": skill_scheme_uri,
+            "type": "skill",
             "language": "fr",
             "limit": limit,
-            "offset": offset,
-            "selectedVersion": "v1.2"
+            "offset": offset
         }
         try:
-            response = requests.get(ESCO_API_URL, params=params, headers=headers, timeout=30)
+            response = requests.get(ESCO_API_URL, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
             
