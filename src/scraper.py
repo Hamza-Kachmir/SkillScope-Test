@@ -6,24 +6,46 @@ import time
 import random
 import logging
 from urllib.parse import quote_plus
-from typing import List, Dict
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException
 
-from src.config import HEADERS, APEC_BASE_URL, APEC_SEARCH_URL_PATH, APEC_JOB_CARD_SELECTOR, APEC_JOB_CARD_TITLE_SELECTOR, APEC_JOB_CARD_COMPANY_SELECTOR, APEC_JOB_CARD_URL_SELECTOR, APEC_COOKIE_BUTTON_ID
+# --- Constantes ---
+# Utilisation de headers HTTP pour simuler un navigateur et rendre les requêtes plus crédibles.
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+    "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+# URL de base du site à scraper.
+BASE_WTTJ_URL = "https://www.welcometothejungle.com"
+# Sélecteurs CSS pour identifier les éléments clés dans la page.
+SEARCH_RESULTS_SELECTOR = 'ol[data-testid="search-results"]'
+JOB_CARD_SELECTOR = 'li[data-testid="search-results-list-item-wrapper"]'
+# ID du bouton pour accepter les cookies.
+COOKIE_BUTTON_ID = "onetrust-accept-btn-handler"
 
-class APECScraper:
+
+class WTTJScraper:
     """
-    Un scraper pour APEC utilisant Selenium pour la navigation initiale sur les pages de recherche dynamiques.
+    Un scraper pour Welcome to the Jungle utilisant Selenium pour la navigation
+    initiale sur les pages de recherche dynamiques.
     """
     def __init__(self, headless: bool = True, wait_time: int = 45):
+        """
+        Initialise le scraper et le driver Selenium.
+
+        Args:
+            headless (bool): Si True, le navigateur Chrome s'exécute en arrière-plan,
+                             sans interface graphique. C'est essentiel pour le déploiement.
+            wait_time (int): Temps d'attente maximum pour que les éléments apparaissent.
+        """
         self.wait_time = wait_time
+        # Le driver est configuré via une méthode dédiée pour plus de clarté.
         self.driver = self._setup_driver(headless)
-        self.cookies = None # Pour stocker les cookies après acceptation
+        # On stockera les cookies ici après les avoir acceptés.
+        self.cookies = None
         if self.driver:
             self.wait = WebDriverWait(self.driver, self.wait_time)
 
@@ -34,187 +56,190 @@ class APECScraper:
         try:
             options = webdriver.ChromeOptions()
             if headless:
+                # Le mode headless est crucial pour l'exécution sur un serveur.
                 options.add_argument("--headless=new")
+# Ces arguments sont des bonnes pratiques pour assurer la stabilité, surtout en environnement conteneurisé.
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1920,1080")
             options.add_argument("--disable-notifications")
-            # Ajout d'un User-Agent pour être plus crédible (si non géré par HEADERS globalement)
-            options.add_argument(f"user-agent={HEADERS['User-Agent']}") 
-            
             driver = webdriver.Chrome(options=options)
-            logging.info("Driver Selenium initialisé avec succès pour APEC.")
+            logging.info("Driver Selenium initialisé avec succès.")
             return driver
-        except WebDriverException as e:
-            logging.critical(f"Erreur critique lors de l'initialisation du driver Selenium pour APEC: {e}", exc_info=True)
+        except Exception as e:
+# Une erreur critique : si le driver ne démarre pas, on la log pour le débogage.
+            logging.critical(f"Erreur critique lors de l'initialisation du driver: {e}", exc_info=True)
             return None
 
     def _accept_cookies(self):
         """
         Trouve et clique sur le bouton d'acceptation des cookies s'il est présent.
+        Cette action est nécessaire pour interagir avec la page et récupérer
+        des cookies de session valides.
         """
         try:
-            # APEC utilise OneTrust, le bouton a souvent l'ID 'onetrust-accept-btn-handler'
-            cookie_button = WebDriverWait(self.driver, 5).until( # Attendre max 5s
-                EC.element_to_be_clickable((By.ID, APEC_COOKIE_BUTTON_ID))
+            # On attend 3 secondes maximum que le bouton de cookies devienne cliquable.
+            cookie_button = WebDriverWait(self.driver, 3).until(
+                EC.element_to_be_clickable((By.ID, COOKIE_BUTTON_ID))
             )
             cookie_button.click()
-            logging.info("APEC : Cookies acceptés.")
-            time.sleep(random.uniform(0.5, 1.0)) # Petite pause
-        except TimeoutException:
-            logging.info("APEC : Bannière de cookies non trouvée ou déjà acceptée (Timeout).")
-        except Exception as e:
-            logging.warning(f"APEC : Erreur lors de l'acceptation des cookies: {e}")
+            logging.info("Cookies acceptés.")
+            # Petite pause pour simuler un comportement humain et laisser la page réagir.
+            time.sleep(random.uniform(0.3, 0.8))
+        except Exception:
+            # Pas grave si le bouton n'est pas trouvé : soit les cookies sont déjà acceptés, soit la bannière n'est pas apparue.
+            logging.info("Bannière de cookies non trouvée ou déjà acceptée.")
 
-    def search_and_scrape_job_urls(self, search_term: str, num_pages: int = 2) -> list[dict]:
+    def search_and_scrape_jobs(self, search_term: str, num_pages: int = 2) -> list[dict]:
         """
-        Navigue sur les pages de résultats de recherche APEC et extrait les URLs des offres.
+        Navigue sur les pages de résultats et extrait les métadonnées de chaque offre.
+        Cette fonction utilise Selenium car la page de recherche charge son contenu
+        dynamiquement avec du JavaScript.
+
+        Args:
+            search_term (str): Le métier ou mot-clé à rechercher.
+            num_pages (int): Le nombre de pages de résultats à parcourir.
+
+        Returns:
+            list[dict]: Une liste de dictionnaires, chaque dictionnaire représentant une offre.
         """
         if not self.driver:
-            logging.error("Driver Selenium non initialisé pour APEC. Abandon de la recherche.")
+            logging.error("Driver non initialisé. Abandon de la recherche.")
             return []
 
+        # `quote_plus` encode le terme de recherche pour l'inclure sans risque dans une URL (ex: "Data Scientist" devient "Data+Scientist").
         search_term_encoded = quote_plus(search_term)
-        all_offers_metadata = []
-        urls_seen = set()
-
-        for page_number in range(num_pages): # APEC uses 0-indexed pages for search payload, but URL might vary
-            # Construction de l'URL de recherche APEC. APEC peut ne pas avoir une simple page=X pour la pagination
-            # On va tenter une URL générique et voir si le contenu est là.
-            # L'API APEC utilise `startIndex` et `range`, mais si on scrape le site, il faut observer comment leur pagination fonctionne
-            # En général, les sites APEC/WTTJ chargent dynamiquement. Pour simuler une pagination front-end,
-            # on pourrait chercher les boutons "page suivante" ou manipuler les paramètres d'URL s'ils sont simples.
-            # Pour l'instant, nous allons construire une URL simple et supposer qu'elle affiche les premiers résultats.
-            # L'APEC expose aussi une pagination via des numéros de page dans les liens, ex: ...page=2
-            # Cependant, l'API est souvent plus fiable pour la pagination sans headless.
-            # Ici, comme on utilise Selenium, on peut naviguer sur des URLs avec param page.
-
-            # Exemple d'URL APEC pour recherche avec pagination:
-            # https://www.apec.fr/candidat/recherche-emploi.html/emploi/recherche-offres.html?motsCles=UX%20Designer&page=1
-            search_url = f"{APEC_BASE_URL}{APEC_SEARCH_URL_PATH}?motsCles={search_term_encoded}&page={page_number}"
-            
-            logging.info(f"APEC Scraper (Selenium) : Navigation vers l'URL de recherche : {search_url}")
+        
+        all_offers = []
+        urls_seen = set() # Un `set` est utilisé pour vérifier très rapidement si une URL a déjà été ajoutée, afin d'éviter les doublons.
+        
+        for page_number in range(1, num_pages + 1):
+            search_url = f"{BASE_WTTJ_URL}/fr/jobs?query={search_term_encoded}&page={page_number}"
+            logging.info(f"Navigation vers l'URL de recherche : {search_url}")
             self.driver.get(search_url)
 
-            # Accepter les cookies la première fois
-            if page_number == 0:
-                self._accept_cookies()
-                # Récupérer les cookies pour les futures requêtes requests.get
-                self.cookies = self.driver.get_cookies()
-            
             try:
-                # Attendre que les résultats de recherche soient chargés (ex: un élément qui contient les offres)
-                # Le sélecteur `apec-recherche-resultat` correspond aux cartes d'offres individuelles.
-                self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, APEC_JOB_CARD_SELECTOR)))
-                logging.info(f"APEC Scraper (Selenium) : Page {page_number} chargée avec des offres.")
-                
-                time.sleep(random.uniform(1.5, 2.5)) # Laisser le temps au contenu de se charger
+                # C'est l'étape clé de Selenium : on attend que l'élément des résultats soit présent dans le DOM.
+                self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, SEARCH_RESULTS_SELECTOR)))
+                logging.info(f"Page {page_number} chargée.")
 
+                # On ne gère les cookies qu'une seule fois, sur la première page.
+                if page_number == 1:
+                    self._accept_cookies()
+                    # Après acceptation, les cookies sont sauvegardés pour être réutilisés plus tard avec `requests`.
+                    self.cookies = self.driver.get_cookies()
+                    logging.info(f"{len(self.cookies)} cookies ont été récupérés.")
+                
+                # Pause pour s'assurer que tout le JavaScript a eu le temps de s'exécuter.
+                time.sleep(random.uniform(1.5, 2.5))
+
+                # On passe le code source de la page (maintenant complet) à BeautifulSoup pour le parser plus facilement.
                 soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-                # Les cartes d'offres sont des liens cliquables
-                job_cards = soup.select(APEC_JOB_CARD_SELECTOR)
-                logging.info(f"APEC Scraper (Selenium) : {len(job_cards)} cartes d'offres trouvées sur la page {page_number}.")
+                cards = soup.select(JOB_CARD_SELECTOR)
+                logging.info(f"{len(cards)} offres trouvées sur la page {page_number}.")
 
-                if not job_cards:
-                    logging.warning("APEC Scraper (Selenium) : Aucune carte d'offre trouvée sur cette page. Arrêt de la pagination.")
+                if not cards:
+                    logging.warning("Aucune offre trouvée sur cette page. Arrêt de la pagination.")
                     break
-                
-                for card in job_cards:
-                    # Le titre est souvent dans une h2 à l'intérieur de la carte
-                    title_el = card.select_one(APEC_JOB_CARD_TITLE_SELECTOR)
-                    # Le nom de l'entreprise est souvent dans un p.card-offer__company
-                    company_el = card.select_one(APEC_JOB_CARD_COMPANY_SELECTOR)
-                    # L'URL est le href du <a> direct de la carte
-                    link_el = card.select_one(APEC_JOB_CARD_URL_SELECTOR) # Ou simplement card['href'] si le <a> est la carte elle-même
-                    
-                    if title_el and company_el and link_el and 'href' in link_el.attrs:
-                        # Les URLs APEC sont souvent relatives ou commencent par /candidat/...
-                        # Nous devons nous assurer qu'elles sont complètes.
-                        relative_url = link_el['href']
-                        if not relative_url.startswith('http'):
-                            # S'assurer que l'URL de base ne se termine pas par '/' si l'URL relative commence par '/'
-                            url = APEC_BASE_URL.rstrip('/') + relative_url if relative_url.startswith('/') else f"{APEC_BASE_URL}/{relative_url}"
-                        else:
-                            url = relative_url
 
+                # On itère sur chaque card d'offre pour extraire les infos de base.
+                for card in cards:
+                    title_el = card.find('h2')
+                    company_img_el = card.find('img', alt=True)
+                    link_el = card.find('a', href=True)
+
+                    if title_el and company_img_el and link_el:
+                        url = BASE_WTTJ_URL + link_el["href"]
                         if url not in urls_seen:
                             urls_seen.add(url)
-                            all_offers_metadata.append({
-                                "titre": title_el.get_text(strip=True),
-                                "entreprise": company_el.get_text(strip=True),
+                            all_offers.append({
+                                "titre": title_el.text.strip(),
+                                "entreprise": company_img_el['alt'].strip(),
                                 "url": url
                             })
-            except TimeoutException:
-                logging.warning(f"APEC Scraper (Selenium) : Timeout en attendant les éléments de la page {page_number}. Pas d'offres ou page vide.")
-                break # Arrêter si on ne trouve plus d'éléments de résultats
             except Exception as e:
-                logging.error(f"APEC Scraper (Selenium) : Erreur lors du parsing de la page {page_number}: {e}", exc_info=True)
+                logging.error(f"Problème lors du parsing de la page {page_number}: {e}", exc_info=True)
                 break
         
-        logging.info(f"APEC Scraper (Selenium) : Scraping de la liste des URLs terminé. Total d'offres collectées : {len(all_offers_metadata)}.")
-        return all_offers_metadata
+        logging.info(f"Scraping initial terminé. Total d'offres collectées : {len(all_offers)}.")
+        return all_offers
 
     def close_driver(self):
         """
-        Ferme proprement le driver Selenium.
+        Ferme proprement le driver Selenium pour libérer les ressources (mémoire, etc.).
+        C'est une étape très importante à ne pas oublier.
         """
         if self.driver:
-            logging.info("Fermeture du driver Selenium pour APEC.")
+            logging.info("Fermeture du driver Selenium.")
             self.driver.quit()
             self.driver = None
 
-def get_apec_job_details(url: str, session_cookies: List[Dict]) -> Dict:
+def get_job_details(url: str, cookies: list[dict]) -> dict:
     """
-    Récupère les détails d'une seule offre APEC (description, tags) en utilisant `requests`.
+    Récupère les détails d'une seule offre (description, tags) en utilisant `requests`.
+    Cette approche est beaucoup plus rapide et légère que d'utiliser Selenium pour chaque page.
+
+    Args:
+        url (str): L'URL de la page de l'offre.
+        cookies (list[dict]): Les cookies de session obtenus par Selenium.
+
+    Returns:
+        dict: Un dictionnaire contenant la description et les tags de l'offre.
     """
+    # Pause aléatoire très courte pour éviter de surcharger le serveur.
     time.sleep(random.uniform(0.1, 0.5))
     details = {'description': None, 'tags': []}
     
+    # On crée une session `requests` qui va conserver les cookies pour toutes les requêtes, nous faisant passer pour le même utilisateur qui a navigué sur le site.
     session = requests.Session()
     session.headers.update(HEADERS)
-    for cookie in session_cookies:
-        # Les domaines des cookies peuvent parfois causer des problèmes, on peut les rendre plus génériques
-        # ou s'assurer qu'ils correspondent au domaine de l'URL de l'offre.
-        # Ici, on suppose que le domaine est correct ou peut être ignoré par requests si malformé.
-        session.cookies.set(cookie['name'], cookie['value'], domain=cookie.get('domain', '').lstrip('.'))
+    for cookie in cookies:
+        session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
 
     try:
         resp = session.get(url, timeout=10)
-        resp.raise_for_status()
+        resp.raise_for_status() # Lève une exception si la requête a échoué (ex: erreur 404, 500).
         soup = BeautifulSoup(resp.text, "html.parser")
+        job_data = None
         
-        # Vérifier si l'offre n'est plus disponible
-        if "L'offre que vous souhaitez afficher n'est plus disponible" in soup.get_text():
-            logging.warning(f"APEC Scraper (Details) : L'offre {url} n'est plus disponible.")
-            return details # Retourne des détails vides si l'offre est introuvable
+        # Stratégie principale : extraire les données d'un script JSON directement depuis la page pour une meilleure fiabilité.
+        script_initial = soup.find("script", string=re.compile("window.__INITIAL_DATA__"))
+        if script_initial:
+            # Expression régulière pour extraire l'objet JSON de la balise script.
+            match = re.search(r'window\.__INITIAL_DATA__\s*=\s*(.*?)\s*window\.__FLAGS_DATA__', script_initial.string, re.DOTALL)
+            if match:
+                # Le JSON est parfois entouré de guillemets ou se termine par un ';', il faut le nettoyer.
+                json_data_raw = match.group(1).strip().rstrip(';')
+                if json_data_raw.startswith('"') and json_data_raw.endswith('"'):
+                   json_data_raw = json.loads(json_data_raw)
+                
+                parsed_data = json.loads(json_data_raw) if isinstance(json_data_raw, str) else json_data_raw
+                # On navigue dans l'objet JSON pour trouver les données de l'offre.
+                job_data = parsed_data.get('queries', [{}])[0].get('state', {}).get('data', {})
 
-        # Extraction de la description (souvent dans un <p> ou <div> principal)
-        # La description est dans le JSON-LD ou dans le corps du texte.
-        # Pour l'APEC, elle est souvent dans <div class="details-post"><h4>Descriptif du poste</h4><p>...</p></div>
-        description_el = soup.select_one('div.details-post > h4:-soup-contains("Descriptif du poste") + p')
-        if description_el:
-            details['description'] = description_el.get_text("\n", strip=True)
+        if job_data:
+            # Si on a trouvé le JSON, on extrait les données proprement.
+            description_html = job_data.get('description', '')
+            profile_html = job_data.get('profile', '')
+            # On combine les sections et on utilise BeautifulSoup pour nettoyer le HTML et ne garder que le texte.
+            details['description'] = BeautifulSoup(f"{description_html}\n\n{profile_html}", 'html.parser').get_text("\n", strip=True)
+
+            # On utilise des compréhensions d'ensemble pour extraire et dédoublonner efficacement les compétences et outils.
+            skills_fr = {s['name']['fr'].strip().title() for s in job_data.get('skills', []) if isinstance(s.get('name'), dict) and s.get('name', {}).get('fr')}
+            tools = {t['name'].strip().title() for t in job_data.get('tools', []) if t.get('name')}
+            
+            # L'opérateur `|` fusionne les deux ensembles (sets) pour obtenir une liste unique.
+            details['tags'] = sorted(list(skills_fr | tools))
         else:
-            logging.warning(f"APEC Scraper (Details) : Description non trouvée pour {url}.")
-
-        # Extraction des compétences structurées (Langues, Savoir-être, Savoir-faire)
-        # SÉLECTEUR AFFINÉ : Cibler les <p> à l'intérieur de <apec-competence-detail>
-        skill_elements = soup.select('apec-competence-detail p')
-        
-        extracted_skills = set()
-        for element in skill_elements:
-            skill_text = element.get_text(strip=True)
-            # Filtre pour éviter les textes vides ou des caractères isolés qui ne sont pas des compétences
-            if skill_text and len(skill_text) > 1 and not skill_text.replace('.', '', 1).isdigit(): 
-                extracted_skills.add(skill_text)
-        
-        details['tags'] = sorted(list(extracted_skills))
-        logging.info(f"APEC Scraper (Details) : {len(details['tags'])} compétences structurées extraites de {url}.")
+            # Stratégie de secours : si le JSON est absent, on parse le HTML de la balise <main>. C'est moins fiable, mais ça dépanne.
+            main_content = soup.find('main')
+            if main_content:
+                details['description'] = main_content.get_text("\n", strip=True)
 
     except requests.exceptions.HTTPError as http_err:
-        logging.warning(f"APEC Scraper (Details) : Erreur HTTP {http_err.response.status_code} pour {url}. Offre ignorée.")
+        logging.warning(f"⚠️ Erreur HTTP {http_err.response.status_code} pour {url}. Offre ignorée.")
     except Exception as e:
-        logging.error(f"APEC Scraper (Details) : Erreur non gérée pour {url}: {e}", exc_info=True)
+        logging.error(f"❌ Erreur non gérée pour {url}: {e}", exc_info=True)
 
     return details
