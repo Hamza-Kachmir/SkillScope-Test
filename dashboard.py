@@ -7,6 +7,7 @@ import logging
 
 from src.pipeline import search_france_travail_offers, process_offers
 from src.log_handler import setup_log_capture
+from src.esco_api import clear_esco_cache
 
 st.set_page_config(
     page_title="SkillScope | Analyseur de Compétences",
@@ -48,9 +49,16 @@ with content_col:
     with col2:
         launch_button = st.button("Lancer l'analyse", type="primary", use_container_width=True, disabled=(not job_to_scrape))
     
+    force_refresh = st.checkbox("Forcer la mise à jour des compétences (ESCO)", help="Cochez cette case si les résultats semblent incorrects. Cela forcera le retéléchargement de la liste de compétences depuis l'API ESCO, ce qui peut prendre quelques minutes au premier lancement.")
+    
     placeholder = st.empty()
 
     if launch_button:
+        if force_refresh:
+            clear_esco_cache()
+            st.toast("Cache des compétences ESCO effacé. L'application va se recharger.", icon="🔄")
+            st.rerun()
+
         for key in ['df_results', 'error_message', 'log_messages']:
             if key in st.session_state: del st.session_state[key]
         st.session_state['job_title'] = job_to_scrape

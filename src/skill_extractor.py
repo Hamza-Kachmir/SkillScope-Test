@@ -2,14 +2,22 @@ import re
 import logging
 from src.esco_api import get_esco_skills
 
-logging.info("Chargement de la liste de compétences ESCO...")
+logging.info("Tentative de chargement de la liste de compétences ESCO...")
 ALL_SKILLS = get_esco_skills()
-logging.info(f"{len(ALL_SKILLS)} compétences chargées.")
+logging.info(f"Chargement terminé. {len(ALL_SKILLS)} compétences brutes récupérées.")
 
 def _build_regex_pattern(skills: list[str]) -> re.Pattern:
     logging.info("Construction du motif regex...")
     
-    escaped_skills = [re.escape(skill) for skill in skills if skill]
+    # On filtre les compétences vides ou invalides
+    valid_skills = [skill for skill in skills if isinstance(skill, str) and skill.strip()]
+    if not valid_skills:
+        logging.error("Aucune compétence valide trouvée pour construire le motif regex.")
+        return None
+        
+    logging.info(f"{len(valid_skills)} compétences valides utilisées pour la regex.")
+    
+    escaped_skills = [re.escape(skill) for skill in valid_skills]
     
     pattern_string = r'\b(' + '|'.join(escaped_skills) + r')\b'
     

@@ -61,3 +61,11 @@ def get_esco_skills() -> list[str]:
             with open(CACHE_FILE, 'w', encoding='utf-8') as f:
                 json.dump(skills, f, ensure_ascii=False, indent=2)
         return skills
+
+def clear_esco_cache():
+    if os.path.exists(CACHE_FILE):
+        logging.warning(f"Suppression manuelle du fichier cache : {CACHE_FILE}")
+        os.remove(CACHE_FILE)
+        return True
+    logging.info("Le fichier cache n'existait pas, aucune action requise.")
+    return False
