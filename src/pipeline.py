@@ -3,42 +3,67 @@ import logging
 from typing import Callable
 import streamlit as st
 
-from src.france_travail_api import FranceTravailClient
-from src.skill_extractor import extract_skills_from_text, initialize_extractor
+from src.france_travail_api import FranceTravailAPI
+from src.skill_extractor import extract_skills, load_skills_from_json
+from src.normalization import get_canonical_form
 
-def search_france_travail_offers(search_term: str, logger: logging.Logger) -> list[dict]:
+def search_france_travail_offers(rome_code: str, search_range: int = 30) -> pd.DataFrame:
+    """
+    Recherche des offres d'emploi sur l'API de France Travail pour un code ROME donné.
+    """
+    api = FranceTravailAPI()
+    if not api.is_token_valid():
+        api.authenticate()
+    
     try:
-        logger.info(f"Phase 1 : Lancement de la recherche d'offres France Travail pour '{search_term}'.")
-        client = FranceTravailClient(
-            client_id=st.secrets["FT_CLIENT_ID"], 
-            client_secret=st.secrets["FT_CLIENT_SECRET"], 
-            logger=logger
-        )
-        return client.search_offers(search_term, max_offers=150)
+        offers_data = api.search(rome_code=rome_code, range=search_range)
+        if offers_data and 'resultats' in offers_data:
+            return pd.DataFrame(offers_data['resultats'])
+        else:
+            logging.warning("Aucune offre trouvée ou erreur dans les données reçues de l'API.")
+            return pd.DataFrame()
     except Exception as e:
-        logger.error(f"Échec de l'appel à l'API France Travail : {e}")
-        return []
+        logging.error(f"Erreur lors de la recherche d'offres : {e}")
+        return pd.DataFrame()
 
-def process_offers(all_offers: list[dict], progress_callback: Callable[[float], None]) -> pd.DataFrame | None:
-    if not all_offers:
-        return None
-    
-    initialize_extractor()
-    
-    logging.info("Début de l'extraction des compétences pour les offres...")
+def process_offers(offers_df: pd.DataFrame, log_callback: Callable[[str], None]) -> pd.DataFrame:
+    """
+    Traite les offres d'emploi pour en extraire et normaliser les compétences.
+    """
+    if offers_df.empty:
+        log_callback("Aucune offre à traiter.")
+        return pd.DataFrame(columns=['Intitulé', 'Compétences', 'Hardskills', 'Softskills', 'Langues', 'Source', 'URL'])
 
-    for offer in all_offers:
+    log_callback(f"Début du traitement de {len(offers_df)} offres.")
+
+    # Charger les compétences depuis les fichiers JSON (si ce n'est pas déjà fait)
+    load_skills_from_json()
+
+    processed_data = []
+    for index, offer in offers_df.iterrows():
         description = offer.get('description', '')
-        offer['tags'] = sorted(list(extract_skills_from_text(description)))
+        title = offer.get('intitule', 'N/A')
+        url = offer.get('origineOffre', {}).get('urlOrigine', 'N/A')
+
+        # Extraire les compétences
+        extracted = extract_skills(description)
         
-    progress_callback(1.0)
-    logging.info("Extraction des compétences terminée.")
+        # Consolider toutes les compétences dans une seule liste pour la normalisation
+        all_skills = extracted["HardSkills"] + extracted["SoftSkills"] + extracted["Languages"]
+        
+        # Normaliser les compétences (exemple de fonction, à adapter si besoin)
+        normalized_skills = [get_canonical_form(skill) for skill in all_skills]
+        
+        processed_data.append({
+            'Intitulé': title,
+            'Compétences': ', '.join(sorted(list(set(normalized_skills)))),
+            'Hardskills': ', '.join(sorted(list(set(extracted["HardSkills"])))),
+            'Softskills': ', '.join(sorted(list(set(extracted["SoftSkills"])))),
+            'Langues': ', '.join(sorted(list(set(extracted["Languages"])))),
+            'Source': 'France Travail',
+            'URL': url
+        })
+
+    log_callback(f"Fin du traitement de {len(offers_df)} offres.")
     
-    df = pd.DataFrame(all_offers)
-    
-    final_cols = ['titre', 'entreprise', 'url', 'tags']
-    for col in final_cols:
-        if col not in df.columns:
-            df[col] = [[] for _ in range(len(df))] if col == 'tags' else None
-            
-    return df[final_cols]
+    return pd.DataFrame(processed_data)
