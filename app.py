@@ -24,36 +24,7 @@ class UiLogHandler(logging.Handler):
 @ui.page('/')
 async def main_page():
 
-    # --- Configuration de la page ---
-    app.add_static_files('/assets', 'assets')
-    ui.query('body').style('background-color: #f5f5f5;')
-
-    # --- Header ---
-    with ui.header(elevated=True).classes('bg-white text-black items-center px-4 py-2'):
-        with ui.row().classes('w-full items-center justify-between'):
-            ui.image('/assets/SkillScope.svg').classes('w-40')
-            with ui.row().classes('items-center'):
-                ui.link('Portfolio', 'https://portfolio-hamza-kachmir.vercel.app/', new_tab=True).classes('text-gray-600 hover:text-blue-700')
-                ui.link('LinkedIn', 'https://www.linkedin.com/in/hamza-kachmir/', new_tab=True).classes('ml-4 text-gray-600 hover:text-blue-700')
-
-    # --- Conteneur principal ---
-    with ui.column().classes('w-full max-w-4xl mx-auto p-4 items-center gap-4'):
-        ui.markdown("## Analysez les compétences clés d'un métier").classes('text-3xl text-center font-light text-gray-800')
-        ui.markdown("_Basé sur les données en temps réel de **France Travail** et du référentiel **ESCO**._").classes('text-center text-gray-500 mb-6')
-
-        # --- Barre de recherche ---
-        with ui.row().classes('w-full max-w-lg items-center gap-2'):
-            job_input = ui.input(placeholder="Ex: Développeur Python, Chef de projet...").props('outlined dense').classes('flex-grow')
-            launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis).props('color=primary unelevated').bind_enabled_from(job_input, 'value', bool)
-
-        # --- Zone pour les résultats dynamiques ---
-        results_container = ui.column().classes('w-full mt-6')
-        
-        # --- Zone pour les logs ---
-        with ui.expansion("Voir les logs d'exécution", icon='code').classes('w-full mt-4'):
-            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
-
-    # --- Logique principale de l'application ---
+    # --- Logique principale de l'application (DÉFINIE AVANT L'UI) ---
     async def run_analysis():
         job_title = job_input.value
         if not job_title:
@@ -105,7 +76,7 @@ async def main_page():
                         ui.icon('report_problem', color='negative')
                         ui.label(str(e)).classes('text-negative font-bold ml-2')
 
-    # --- Fonction d'affichage des résultats ---
+    # --- Fonction d'affichage des résultats (DÉFINIE AVANT L'UI) ---
     def display_results(df: pd.DataFrame, job_title: str):
         results_container.clear()
         with results_container:
@@ -146,6 +117,39 @@ async def main_page():
             
             # Lie le champ de filtre au tableau
             table.bind_filter_from(filter_input, 'value')
+
+
+    # --- Création des éléments de l'UI (MAINTENANT QUE LES FONCTIONS SONT DÉFINIES) ---
+    
+    # Configuration de la page
+    app.add_static_files('/assets', 'assets')
+    ui.query('body').style('background-color: #f5f5f5;')
+
+    # Header
+    with ui.header(elevated=True).classes('bg-white text-black items-center px-4 py-2'):
+        with ui.row().classes('w-full items-center justify-between'):
+            ui.image('/assets/SkillScope.svg').classes('w-40')
+            with ui.row().classes('items-center'):
+                ui.link('Portfolio', 'https://portfolio-hamza-kachmir.vercel.app/', new_tab=True).classes('text-gray-600 hover:text-blue-700')
+                ui.link('LinkedIn', 'https://www.linkedin.com/in/hamza-kachmir/', new_tab=True).classes('ml-4 text-gray-600 hover:text-blue-700')
+
+    # Conteneur principal
+    with ui.column().classes('w-full max-w-4xl mx-auto p-4 items-center gap-4'):
+        ui.markdown("## Analysez les compétences clés d'un métier").classes('text-3xl text-center font-light text-gray-800')
+        ui.markdown("_Basé sur les données en temps réel de **France Travail** et du référentiel **ESCO**._").classes('text-center text-gray-500 mb-6')
+
+        # Barre de recherche
+        with ui.row().classes('w-full max-w-lg items-center gap-2'):
+            job_input = ui.input(placeholder="Ex: Développeur Python, Chef de projet...").props('outlined dense').classes('flex-grow')
+            launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis).props('color=primary unelevated').bind_enabled_from(job_input, 'value', bool)
+
+        # Zone pour les résultats dynamiques
+        results_container = ui.column().classes('w-full mt-6')
+        
+        # Zone pour les logs
+        with ui.expansion("Voir les logs d'exécution", icon='code').classes('w-full mt-4'):
+            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
+
 
 # --- Point d'entrée pour lancer l'application ---
 # On configure le port pour qu'il corresponde à celui attendu par Render.
