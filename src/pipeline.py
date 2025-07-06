@@ -1,68 +1,44 @@
 import pandas as pd
 import logging
 from typing import Callable
+import streamlit as st
 
-# Imports absolus qui fonctionnent grâce au changement dans dashboard.py
-from src.france_travail_api import FranceTravailAPI 
-from src.skill_extractor import extract_skills
-from src.normalization import get_canonical_form # Je garde la normalisation si tu veux la réutiliser
+from src.france_travail_api import FranceTravailClient
+from src.skill_extractor import extract_skills_from_text, initialize_extractor
 
-def search_france_travail_offers(rome_code: str, log_handler) -> list[dict]:
-    """
-    Recherche des offres d'emploi sur l'API de France Travail.
-    """
-    log_handler.info(f"Recherche d'offres pour le code ROME : '{rome_code}'")
-    api = FranceTravailAPI()
-    if not api.is_token_valid():
-        api.authenticate()
-    
+def search_france_travail_offers(search_term: str, logger: logging.Logger) -> list[dict]:
     try:
-        offers_data = api.search(rome_code=rome_code, range="0,149") # Recherche jusqu'à 150 offres
-        if offers_data and 'resultats' in offers_data:
-            log_handler.info(f"{len(offers_data['resultats'])} offres trouvées.")
-            return offers_data['resultats']
-        else:
-            log_handler.warning("Aucune offre trouvée ou données invalides reçues de l'API.")
-            return []
+        logger.info(f"Phase 1 : Lancement de la recherche d'offres France Travail pour '{search_term}'.")
+        client = FranceTravailClient(
+            client_id=st.secrets["FT_CLIENT_ID"], 
+            client_secret=st.secrets["FT_CLIENT_SECRET"], 
+            logger=logger
+        )
+        return client.search_offers(search_term, max_offers=150)
     except Exception as e:
-        log_handler.error(f"Erreur critique lors de l'appel à l'API France Travail : {e}")
+        logger.error(f"Échec de l'appel à l'API France Travail : {e}")
         return []
 
-def process_offers(offers_df: list[dict], progress_callback: Callable[[float], None]) -> pd.DataFrame | None:
-    """
-    Traite une liste d'offres pour en extraire et classer les compétences.
-    """
-    if not offers_df:
-        logging.warning("Aucune offre à traiter.")
+def process_offers(all_offers: list[dict], progress_callback: Callable[[float], None]) -> pd.DataFrame | None:
+    if not all_offers:
         return None
-
-    logging.info(f"Début du traitement et de l'extraction pour {len(offers_df)} offres.")
     
-    processed_data = []
-    total = len(offers_df)
+    initialize_extractor()
+    
+    logging.info("Début de l'extraction des compétences pour les offres...")
 
-    for i, offer in enumerate(offers_df):
+    for offer in all_offers:
         description = offer.get('description', '')
+        offer['tags'] = sorted(list(extract_skills_from_text(description)))
         
-        # Le nouvel extracteur retourne un dictionnaire avec les compétences déjà classées
-        extracted = extract_skills(description)
-
-        # Si tu souhaites appliquer une normalisation (ex: mettre "Js" et "Javascript" sous la même forme)
-        # Tu peux le faire ici. Pour l'instant, on utilise les compétences telles quelles.
-        # hardskills_normalized = [get_canonical_form(s) for s in extracted['HardSkills']]
-        
-        processed_data.append({
-            'Intitulé': offer.get('intitule', 'N/A'),
-            'Entreprise': offer.get('entreprise', {}).get('nom', 'N/A'),
-            'Hardskills': ', '.join(extracted["HardSkills"]),
-            'Softskills': ', '.join(extracted["SoftSkills"]),
-            'Langues': ', '.join(extracted["Languages"]),
-            'URL': offer.get('origineOffre', {}).get('urlOrigine', '#')
-        })
-        
-        # Met à jour la barre de progression dans le dashboard
-        progress_callback((i + 1) / total)
-
-    logging.info("Traitement et extraction des compétences terminés.")
+    progress_callback(1.0)
+    logging.info("Extraction des compétences terminée.")
     
-    return pd.DataFrame(processed_data)
+    df = pd.DataFrame(all_offers)
+    
+    final_cols = ['titre', 'entreprise', 'url', 'tags']
+    for col in final_cols:
+        if col not in df.columns:
+            df[col] = [[] for _ in range(len(df))] if col == 'tags' else None
+            
+    return df[final_cols]
