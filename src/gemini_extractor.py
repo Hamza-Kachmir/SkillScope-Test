@@ -12,7 +12,7 @@ TA MISSION : Tu es un système expert en analyse sémantique pour une base de do
 RÈGLES STRICTES ET IMPÉRATIVES :
 
 1.  **DÉCOMPOSITION** :
-    - Si une compétence contient un slash (/), une virgale (,) ou le mot "et", sépare-la en compétences distinctes. Exemple : "CI/CD" devient ["CI", "CD"]. "Python, Java et Scala" devient ["Python", "Java", "Scala"].
+    - Si une compétence contient un slash (/), une virgule (,) ou le mot "et", sépare-la en compétences distinctes. Exemple : "CI/CD" devient ["CI", "CD"]. "Python, Java et Scala" devient ["Python", "Java", "Scala"].
     - Si une liste de compétences se trouve entre parenthèses, extrais chaque élément comme une compétence individuelle. Exemple : "Langages (Python, Go)" devient ["Python", "Go"].
 
 2.  **NORMALISATION ET DÉDUPLICATION (RÈGLE LA PLUS IMPORTANTE)** :
@@ -79,14 +79,20 @@ async def extract_skills_for_single_offer(description: str) -> dict | None:
             return None
 
     if not description or not isinstance(description, str) or len(description.strip()) < 20:
-        return None # Ignore les descriptions vides ou trop courtes
+        return None
 
     prompt = PROMPT_COMPETENCES_AVANCE.format(description_text=description)
 
     try:
         response = await model.generate_content_async(prompt)
-        skills_json = json.loads(response.text)
+        # CORRECTION : On nettoie la réponse avant de la parser pour éviter les erreurs
+        cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
+        skills_json = json.loads(cleaned_response)
         return skills_json
-    except Exception:
-        # On ne logue pas l'erreur ici pour ne pas polluer les logs en cas d'échec sur une seule offre
+    except json.JSONDecodeError as e:
+        # On logue l'erreur et la réponse problématique pour le débogage
+        logging.warning(f"Erreur de décodage JSON: {e}. Réponse reçue:\n---\n{response.text}\n---")
+        return None
+    except Exception as e:
+        logging.error(f"Erreur inattendue lors de l'analyse d'une offre: {e}")
         return None
