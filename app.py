@@ -4,7 +4,6 @@ from nicegui import ui, app, run
 import os
 import sys
 
-# Ajout du chemin src pour que les imports fonctionnent
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
 from pipeline import get_skills_for_job
@@ -78,7 +77,6 @@ async def run_analysis_logic(job_input: ui.input, results_container: ui.column, 
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     
-    # Vider les anciens handlers pour éviter les logs multiples
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
 
@@ -124,3 +122,15 @@ def main_page():
         ui.markdown("_Basé sur les données de **France Travail** et l'analyse de **Google Gemini**._").classes('text-center text-gray-500 mb-6')
 
         with ui.row().classes('w-full max-w-lg items-center gap-2'):
+            job_input = ui.input(placeholder="Ex: Développeur Python, Chef de projet...").props('outlined dense').classes('flex-grow')
+            launch_button = ui.button('Lancer l\'analyse').props('color=primary unelevated')
+        
+        results_container = ui.column().classes('w-full mt-6')
+        with ui.expansion("Voir les logs d'exécution", icon='code').classes('w-full mt-4'):
+            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
+
+        launch_button.on('click', lambda: run_analysis_logic(job_input, results_container, log_view))
+        launch_button.bind_enabled_from(job_input, 'value', bool)
+
+port = int(os.environ.get('PORT', 8080))
+ui.run(host='0.0.0.0', port=port, title='SkillScope v2')
