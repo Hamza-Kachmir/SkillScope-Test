@@ -4,7 +4,8 @@ import numpy as np
 import base64
 import os
 import logging
-from src.pipeline import process_job_offers_pipeline
+
+from src.pipeline import search_france_travail_offers, process_offers
 from src.log_handler import setup_log_capture
 
 st.set_page_config(
@@ -33,7 +34,7 @@ else:
 st.markdown("""
 <div style='text-align: center;'>
 Un outil pour extraire et quantifier les compétences les plus demandées sur le marché.<br>
-<em>Basé sur les données de <strong>France Travail</strong>.</em>
+<em>Basé sur les données de <strong>France Travail</strong> et <strong>ESCO</strong>.</em>
 </div>
 """, unsafe_allow_html=True)
 st.markdown("---")
@@ -55,21 +56,27 @@ with content_col:
         st.session_state['job_title'] = job_to_scrape
 
         with setup_log_capture() as log_capture_stream:
-            # --- NOUVELLE LOGIQUE D'AFFICHAGE DE LA PROGRESSION ---
-            progress_bar_placeholder = placeholder.empty()
+            logger = logging.getLogger()
+            
+            with placeholder.container():
+                with st.spinner(f"Recherche des offres pour **{job_to_scrape}** via France Travail..."):
+                    all_offers = search_france_travail_offers(job_to_scrape, logger)
 
-            def progress_callback(value, text):
-                progress_bar_placeholder.progress(value, text=text)
-
-            # Appel au pipeline en passant la fonction de callback
-            df_results, _ = process_job_offers_pipeline(job_to_scrape, "", progress_callback=progress_callback)
-            # --- FIN DE LA NOUVELLE LOGIQUE ---
-
-            if df_results is not None and not df_results.empty:
-                df_results.rename(columns={'competences_uniques': 'tags'}, inplace=True)
-                st.session_state['df_results'] = df_results
+            if all_offers:
+                with placeholder.container():
+                    progress_bar = st.progress(0, text="Analyse des compétences en cours... Patientez.")
+                    def progress_callback(value):
+                        text = f"Analyse des compétences en cours... Patientez. ({int(value * 100)}%)"
+                        progress_bar.progress(value, text=text)
+                    
+                    df_results = process_offers(all_offers, progress_callback)
+                    
+                    if df_results is not None and not df_results.empty:
+                        st.session_state['df_results'] = df_results
+                    else:
+                        st.session_state['error_message'] = "L'analyse a échoué ou aucune compétence n'a pu être extraite."
             else:
-                st.session_state['error_message'] = f"Aucune offre trouvée ou analysée pour '{job_to_scrape}'."
+                st.session_state['error_message'] = f"Aucune offre trouvée pour '{job_to_scrape}' sur France Travail."
 
             st.session_state['log_messages'] = log_capture_stream.getvalue()
         st.rerun()

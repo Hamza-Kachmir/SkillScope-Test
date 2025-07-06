@@ -1,44 +1,42 @@
-import json
+import pandas as pd
+import logging
 import os
 import re
-from unidecode import unidecode
 
-def load_all_skills(base_path='assets/skills'):
-    # Cette fonction ne change pas, on charge toujours les compétences dans des sets
-    hard_skills = set()
-    with open(os.path.join(base_path, 'HardSkills.json'), 'r', encoding='utf-8') as f:
-        hard_skills_data = json.load(f)
-    for skill in hard_skills_data:
-        # Important: on normalise les compétences ici pour la comparaison
-        hard_skills.add(unidecode(skill.lower()))
+SKILLS_SET = set()
+CSV_PATH = "assets/skills_fr.csv"
 
-    with open(os.path.join(base_path, 'SoftSkills.json'), 'r', encoding='utf-8') as f:
-        soft_skills = {unidecode(skill.lower()) for skill in json.load(f)}
+def initialize_extractor():
+    global SKILLS_SET
+    if SKILLS_SET:
+        logging.info("Extracteur de compétences (local) déjà initialisé.")
+        return
 
-    with open(os.path.join(base_path, 'Languages.json'), 'r', encoding='utf-8') as f:
-        languages = {unidecode(skill.lower()) for skill in json.load(f)}
+    logging.info("Initialisation de l'extracteur via le fichier CSV local...")
+    if not os.path.exists(CSV_PATH):
+        logging.error(f"Fichier de compétences non trouvé : {CSV_PATH}")
+        return
         
-    return hard_skills, soft_skills, languages
+    try:
+        df = pd.read_csv(CSV_PATH)
+        SKILLS_SET = set(df['preferredLabel'].str.lower().dropna())
+        logging.info(f"{len(SKILLS_SET)} compétences uniques chargées depuis le fichier local.")
+    except Exception as e:
+        logging.error(f"Erreur lors de la lecture du fichier CSV : {e}")
 
-def extract_skills(text, hard_skills_set, soft_skills_set, languages_set):
-    """
-    Nouvelle version ultra-rapide utilisant l'intersection d'ensembles.
-    """
-    if not isinstance(text, str):
-        return {'hard': [], 'soft': [], 'language': []}
+def extract_skills_from_text(text: str) -> set[str]:
+    if not text or not SKILLS_SET:
+        return set()
 
-    # 1. Normaliser le texte de l'offre et le découper en un "sac de mots" uniques
-    normalized_text = unidecode(text.lower())
-    # On utilise une regex simple pour extraire tous les mots
-    text_words = set(re.findall(r'\b\w+\b', normalized_text))
-
-    # 2. Comparer les "sacs de mots" avec l'opérateur d'intersection (&)
-    found_hard = hard_skills_set & text_words
-    found_soft = soft_skills_set & text_words
-    found_lang = languages_set & text_words
+    text_lower = text.lower()
     
-    return {
-        'hard': list(found_hard),
-        'soft': list(found_soft),
-        'language': list(found_lang)
+    # On normalise le texte pour ne garder que les mots et espaces
+    # et on s'assure qu'il est entouré d'espaces pour bien trouver les mots au début/fin.
+    normalized_text = ' ' + re.sub(r'[^a-z0-9\s-]', ' ', text_lower) + ' '
+    
+    found_skills = {
+        skill for skill in SKILLS_SET 
+        if len(skill) > 2 and f' {skill} ' in normalized_text
     }
+    
+    return found_skills

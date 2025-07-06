@@ -1,108 +1,44 @@
 import pandas as pd
 import logging
+from typing import Callable
 import streamlit as st
-import re
-import time
+
 from src.france_travail_api import FranceTravailClient
-from src.skill_extractor import load_all_skills, extract_skills
+from src.skill_extractor import extract_skills_from_text, initialize_extractor
 
-def get_job_offers(job_name: str, max_offers: int) -> pd.DataFrame:
-    logger = logging.getLogger(__name__)
+def search_france_travail_offers(search_term: str, logger: logging.Logger) -> list[dict]:
     try:
-        client_id = st.secrets["FRANCE_TRAVAIL_CLIENT_ID"]
-        client_secret = st.secrets["FRANCE_TRAVAIL_CLIENT_SECRET"]
-    except KeyError:
-        logger.critical("Les secrets 'FRANCE_TRAVAIL_CLIENT_ID' et/ou 'FRANCE_TRAVAIL_CLIENT_SECRET' ne sont pas configurés.")
-        st.error("Les clés API ne sont pas configurées dans les secrets de l'application.")
-        return pd.DataFrame()
+        logger.info(f"Phase 1 : Lancement de la recherche d'offres France Travail pour '{search_term}'.")
+        client = FranceTravailClient(
+            client_id=st.secrets["FT_CLIENT_ID"], 
+            client_secret=st.secrets["FT_CLIENT_SECRET"], 
+            logger=logger
+        )
+        return client.search_offers(search_term, max_offers=150)
+    except Exception as e:
+        logger.error(f"Échec de l'appel à l'API France Travail : {e}")
+        return []
 
-    client = FranceTravailClient(client_id=client_id, client_secret=client_secret, logger=logger)
-    offers_list = client.search_offers(search_term=job_name, max_offers=max_offers)
+def process_offers(all_offers: list[dict], progress_callback: Callable[[float], None]) -> pd.DataFrame | None:
+    if not all_offers:
+        return None
+    
+    initialize_extractor()
+    
+    logging.info("Début de l'extraction des compétences pour les offres...")
 
-    if not offers_list:
-        return pd.DataFrame()
-
-    processed_offers = []
-    for offer in offers_list:
-        entreprise = offer.get('entreprise', {}) if isinstance(offer.get('entreprise'), dict) else {}
-        origine_offre = offer.get('origineOffre', {}) if isinstance(offer.get('origineOffre'), dict) else {}
+    for offer in all_offers:
+        description = offer.get('description', '')
+        offer['tags'] = sorted(list(extract_skills_from_text(description)))
         
-        processed_offers.append({
-            'id': offer.get('id', ''),
-            'intitule': offer.get('intitule', 'Titre non précisé'),
-            'description': offer.get('description', ''),
-            'url': origine_offre.get('urlOrigine', '#'),
-            'entreprise_nom': entreprise.get('nom', 'Non précisé'),
-            'type_contrat': offer.get('typeContratLibelle', 'Non précisé')
-        })
-    return pd.DataFrame(processed_offers)
-
-
-def process_job_offers_pipeline(job_name, location_code, progress_callback=None, max_offers=150):
-    logging.info(f"Début du pipeline pour le métier : '{job_name}'")
-    if progress_callback:
-        progress_callback(0, f"Étape 1/2 : Récupération de {max_offers} offres d'emploi...")
+    progress_callback(1.0)
+    logging.info("Extraction des compétences terminée.")
     
-    df = get_job_offers(job_name, max_offers)
+    df = pd.DataFrame(all_offers)
     
-    if df.empty:
-        logging.warning("Aucune offre d'emploi trouvée. Le pipeline s'arrête.")
-        return pd.DataFrame(), []
-
-    logging.info(f"{len(df)} offres d'emploi récupérées.")
-    
-    hard_skills, soft_skills, languages = load_all_skills()
-    logging.info("Chargement des bases de données de compétences terminé.")
-    
-    if progress_callback:
-        progress_callback(0, "Étape 2/2 : Analyse des compétences...")
-    
-    results = []
-    total_offers = len(df)
-    for i, row in df.iterrows():
-        result = extract_skills(row['description'], hard_skills, soft_skills, languages)
-        results.append(result)
-        if progress_callback:
-            progress_value = (i + 1) / total_offers
-            progress_text = f"Étape 2/2 : Analyse des compétences... ({i+1}/{total_offers} offres)"
-            progress_callback(progress_value, progress_text)
-    
-    df['skills_found'] = results
-    df['hard_skills'] = df['skills_found'].apply(lambda x: x['hard'])
-    df['soft_skills'] = df['skills_found'].apply(lambda x: x['soft'])
-    df['languages'] = df['skills_found'].apply(lambda x: x['language'])
-    
-    total_hard_skills = df['hard_skills'].explode().nunique()
-    total_soft_skills = df['soft_skills'].explode().nunique()
-    total_languages = df['languages'].explode().nunique()
-
-    logging.info(f"Extraction terminée :")
-    logging.info(f"-> {total_hard_skills} compétences 'Hard Skills' uniques trouvées.")
-    logging.info(f"-> {total_soft_skills} compétences 'Soft Skills' uniques trouvées.")
-    logging.info(f"-> {total_languages} compétences 'Languages' uniques trouvées.")
-    
-    # --- MODIFICATION POUR PLUS DE ROBUSTESSE ---
-    # On utilise une fonction dédiée au lieu d'une lambda pour éviter les erreurs
-    def combine_skills(row):
-        # row.get('nom_colonne', []) permet de récupérer une liste vide si la colonne n'existe pas, au lieu de planter.
-        hard = row.get('hard_skills', [])
-        soft = row.get('soft_skills', [])
-        lang = row.get('languages', [])
-        
-        # Sécurité supplémentaire pour s'assurer que ce sont bien des listes
-        hard = hard if isinstance(hard, list) else []
-        soft = soft if isinstance(soft, list) else []
-        lang = lang if isinstance(lang, list) else []
-        
-        return sorted(list(set(hard + soft + lang)))
-
-    df['competences_uniques'] = df.apply(combine_skills, axis=1)
-    # --- FIN DE LA MODIFICATION ---
-    
-    all_skills_list = df['competences_uniques'].explode().dropna().unique().tolist()
-    
-    df_final = df[['id', 'intitule', 'entreprise_nom', 'type_contrat', 'url', 'competences_uniques']].copy()
-    
-    logging.info(f"Pipeline terminé. {len(df_final)} offres traitées. {len(all_skills_list)} compétences uniques au total identifiées.")
-    
-    return df_final, sorted(all_skills_list)
+    final_cols = ['titre', 'entreprise', 'url', 'tags']
+    for col in final_cols:
+        if col not in df.columns:
+            df[col] = [[] for _ in range(len(df))] if col == 'tags' else None
+            
+    return df[final_cols]
