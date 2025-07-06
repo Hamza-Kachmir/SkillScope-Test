@@ -16,7 +16,7 @@ class SkillExtractor:
             cls._instance = super(SkillExtractor, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, csv_path: str = "assets/skills_fr.csv"):
+    def __init__(self, csv_path: str = "assets/hard_skills_29.json"):
         # Le 'singleton pattern' évite de réinitialiser la classe si elle l'a déjà été.
         if hasattr(self, 'is_initialized') and self.is_initialized:
             return
