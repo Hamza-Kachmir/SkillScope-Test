@@ -9,7 +9,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 from pipeline import get_skills_for_job
 from src.cache_manager import delete_from_cache, flush_all_cache
 
-# Déclaration des éléments UI globaux
 job_input = None
 results_container = None
 log_view = None
@@ -30,7 +29,10 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     
     if not skills_data:
         with container:
-            ui.warning("Aucune compétence n'a pu être extraite pour ce métier.")
+            with ui.card().classes('w-full bg-yellow-100 p-4'):
+                with ui.row().classes('items-center'):
+                    ui.icon('warning', color='warning')
+                    ui.label("Aucune compétence pertinente n'a pu être extraite pour ce métier.").classes('text-yellow-800 ml-2')
         return
 
     df_skills = pd.DataFrame(skills_data)
@@ -138,7 +140,7 @@ def main_page():
 
         with ui.row().classes('w-full max-w-lg items-center gap-2'):
             job_input = ui.input(placeholder="Ex: Développeur Python, Chef de projet...").props('outlined dense').classes('flex-grow')
-            launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis_logic).props('color=primary unelevated')
+            launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary unelevated')
         
         results_container = ui.column().classes('w-full mt-6')
         
