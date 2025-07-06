@@ -73,7 +73,6 @@ def initialize_gemini():
         return False
 
 async def extract_skills_for_single_offer(description: str) -> dict | None:
-    """Analyse la description d'UNE SEULE offre pour en extraire les compétences uniques."""
     if not model:
         if not initialize_gemini():
             return None
@@ -83,16 +82,23 @@ async def extract_skills_for_single_offer(description: str) -> dict | None:
 
     prompt = PROMPT_COMPETENCES_AVANCE.format(description_text=description)
 
+    response_text = ""
     try:
         response = await model.generate_content_async(prompt)
-        # CORRECTION : On nettoie la réponse avant de la parser pour éviter les erreurs
-        cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
+        response_text = response.text
+        
+        # --- DÉBOGAGE : On logue la réponse brute ---
+        logging.info("--- DÉBUT RÉPONSE BRUTE GEMINI ---")
+        logging.info(response_text)
+        logging.info("--- FIN RÉPONSE BRUTE GEMINI ---")
+        
+        cleaned_response = response_text.strip().replace("```json", "").replace("```", "").strip()
         skills_json = json.loads(cleaned_response)
         return skills_json
     except json.JSONDecodeError as e:
-        # On logue l'erreur et la réponse problématique pour le débogage
-        logging.warning(f"Erreur de décodage JSON: {e}. Réponse reçue:\n---\n{response.text}\n---")
+        logging.error(f"!!! ERREUR JSON DECODE !!! - {e}")
+        logging.error(f"Réponse brute qui a causé l'erreur:\n{response_text}")
         return None
     except Exception as e:
-        logging.error(f"Erreur inattendue lors de l'analyse d'une offre: {e}")
+        logging.error(f"!!! ERREUR INATTENDUE de type {type(e).__name__} !!! - {e}")
         return None
