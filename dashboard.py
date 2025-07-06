@@ -5,7 +5,8 @@ import base64
 import os
 import logging
 
-from src.pipeline import search_france_travail_offers, process_offers
+# MODIFICATION 1 : Importer la nouvelle fonction du pipeline
+from src.pipeline import process_job_offers_pipeline
 from src.log_handler import setup_log_capture
 
 st.set_page_config(
@@ -34,7 +35,7 @@ else:
 st.markdown("""
 <div style='text-align: center;'>
 Un outil pour extraire et quantifier les compétences les plus demandées sur le marché.<br>
-<em>Basé sur les données de <strong>France Travail</strong> et <strong>ESCO</strong>.</em>
+<em>Basé sur les données de <strong>France Travail</strong>.</em>
 </div>
 """, unsafe_allow_html=True)
 st.markdown("---")
@@ -50,33 +51,24 @@ with content_col:
     
     placeholder = st.empty()
 
+    # MODIFICATION 2 : Adapter la logique d'appel
     if launch_button:
         for key in ['df_results', 'error_message', 'log_messages']:
             if key in st.session_state: del st.session_state[key]
         st.session_state['job_title'] = job_to_scrape
 
         with setup_log_capture() as log_capture_stream:
-            logger = logging.getLogger()
-            
             with placeholder.container():
-                with st.spinner(f"Recherche des offres pour **{job_to_scrape}** via France Travail..."):
-                    all_offers = search_france_travail_offers(job_to_scrape, logger)
+                with st.spinner(f"Analyse des offres pour **{job_to_scrape}**..."):
+                    # Appel à la nouvelle fonction unique du pipeline
+                    df_results, _ = process_job_offers_pipeline(job_to_scrape, "")
 
-            if all_offers:
-                with placeholder.container():
-                    progress_bar = st.progress(0, text="Analyse des compétences en cours... Patientez.")
-                    def progress_callback(value):
-                        text = f"Analyse des compétences en cours... Patientez. ({int(value * 100)}%)"
-                        progress_bar.progress(value, text=text)
-                    
-                    df_results = process_offers(all_offers, progress_callback)
-                    
-                    if df_results is not None and not df_results.empty:
-                        st.session_state['df_results'] = df_results
-                    else:
-                        st.session_state['error_message'] = "L'analyse a échoué ou aucune compétence n'a pu être extraite."
+            if df_results is not None and not df_results.empty:
+                # On renomme la colonne pour que le reste de votre code d'affichage fonctionne sans changement
+                df_results.rename(columns={'competences_uniques': 'tags'}, inplace=True)
+                st.session_state['df_results'] = df_results
             else:
-                st.session_state['error_message'] = f"Aucune offre trouvée pour '{job_to_scrape}' sur France Travail."
+                st.session_state['error_message'] = f"Aucune offre trouvée ou analysée pour '{job_to_scrape}'."
 
             st.session_state['log_messages'] = log_capture_stream.getvalue()
         st.rerun()
