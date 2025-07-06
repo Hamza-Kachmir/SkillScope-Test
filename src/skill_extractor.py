@@ -29,8 +29,11 @@ class SkillExtractor:
             return
 
         try:
-            df = pd.read_csv(csv_path)
-            skill_list = df['preferredLabel'].dropna().unique().tolist()
+            # CORRIGÉ: On lit le fichier avec read_json car c'est un format JSON.
+            df = pd.read_json(csv_path)
+            
+            # CORRIGÉ: Pandas charge la liste JSON dans une colonne nommée '0'.
+            skill_list = df[0].dropna().unique().tolist()
             
             # Étape clé : On construit la carte de normalisation à l'initialisation.
             # Cette carte sait que "reactjs" et "react.js" doivent devenir "React.js".
