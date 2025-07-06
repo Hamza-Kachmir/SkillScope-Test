@@ -1,70 +1,68 @@
 import pandas as pd
 import logging
 from typing import Callable
-import streamlit as st
 
-# IMPORTS CORRIGÉS : Utilisation des imports absolus depuis la racine du projet
-from src.france_travail_api import FranceTravailAPI
-from src.skill_extractor import extract_skills, load_skills_from_json
-from src.normalization import get_canonical_form
+# Imports absolus qui fonctionnent grâce au changement dans dashboard.py
+from src.france_travail_api import FranceTravailAPI 
+from src.skill_extractor import extract_skills
+from src.normalization import get_canonical_form # Je garde la normalisation si tu veux la réutiliser
 
-def search_france_travail_offers(rome_code: str, search_range: int = 30) -> pd.DataFrame:
+def search_france_travail_offers(rome_code: str, log_handler) -> list[dict]:
     """
-    Recherche des offres d'emploi sur l'API de France Travail pour un code ROME donné.
+    Recherche des offres d'emploi sur l'API de France Travail.
     """
+    log_handler.info(f"Recherche d'offres pour le code ROME : '{rome_code}'")
     api = FranceTravailAPI()
     if not api.is_token_valid():
         api.authenticate()
     
     try:
-        offers_data = api.search(rome_code=rome_code, range=search_range)
+        offers_data = api.search(rome_code=rome_code, range="0,149") # Recherche jusqu'à 150 offres
         if offers_data and 'resultats' in offers_data:
-            return pd.DataFrame(offers_data['resultats'])
+            log_handler.info(f"{len(offers_data['resultats'])} offres trouvées.")
+            return offers_data['resultats']
         else:
-            logging.warning("Aucune offre trouvée ou erreur dans les données reçues de l'API.")
-            return pd.DataFrame()
+            log_handler.warning("Aucune offre trouvée ou données invalides reçues de l'API.")
+            return []
     except Exception as e:
-        logging.error(f"Erreur lors de la recherche d'offres : {e}")
-        return pd.DataFrame()
+        log_handler.error(f"Erreur critique lors de l'appel à l'API France Travail : {e}")
+        return []
 
-def process_offers(offers_df: pd.DataFrame, log_callback: Callable[[str], None]) -> pd.DataFrame:
+def process_offers(offers_df: list[dict], progress_callback: Callable[[float], None]) -> pd.DataFrame | None:
     """
-    Traite les offres d'emploi pour en extraire et normaliser les compétences.
+    Traite une liste d'offres pour en extraire et classer les compétences.
     """
-    if offers_df.empty:
-        log_callback("Aucune offre à traiter.")
-        return pd.DataFrame(columns=['Intitulé', 'Compétences', 'Hardskills', 'Softskills', 'Langues', 'Source', 'URL'])
+    if not offers_df:
+        logging.warning("Aucune offre à traiter.")
+        return None
 
-    log_callback(f"Début du traitement de {len(offers_df)} offres.")
-
-    # Charger les compétences depuis les fichiers JSON (si ce n'est pas déjà fait)
-    load_skills_from_json()
-
+    logging.info(f"Début du traitement et de l'extraction pour {len(offers_df)} offres.")
+    
     processed_data = []
-    for index, offer in offers_df.iterrows():
-        description = offer.get('description', '')
-        title = offer.get('intitule', 'N/A')
-        url = offer.get('origineOffre', {}).get('urlOrigine', 'N/A')
+    total = len(offers_df)
 
-        # Extraire les compétences
+    for i, offer in enumerate(offers_df):
+        description = offer.get('description', '')
+        
+        # Le nouvel extracteur retourne un dictionnaire avec les compétences déjà classées
         extracted = extract_skills(description)
-        
-        # Consolider toutes les compétences dans une seule liste pour la normalisation
-        all_skills = extracted["HardSkills"] + extracted["SoftSkills"] + extracted["Languages"]
-        
-        # Normaliser les compétences
-        normalized_skills = [get_canonical_form(skill) for skill in all_skills]
+
+        # Si tu souhaites appliquer une normalisation (ex: mettre "Js" et "Javascript" sous la même forme)
+        # Tu peux le faire ici. Pour l'instant, on utilise les compétences telles quelles.
+        # hardskills_normalized = [get_canonical_form(s) for s in extracted['HardSkills']]
         
         processed_data.append({
-            'Intitulé': title,
-            'Compétences': ', '.join(sorted(list(set(normalized_skills)))),
-            'Hardskills': ', '.join(sorted(list(set(extracted["HardSkills"])))),
-            'Softskills': ', '.join(sorted(list(set(extracted["SoftSkills"])))),
-            'Langues': ', '.join(sorted(list(set(extracted["Languages"])))),
-            'Source': 'France Travail',
-            'URL': url
+            'Intitulé': offer.get('intitule', 'N/A'),
+            'Entreprise': offer.get('entreprise', {}).get('nom', 'N/A'),
+            'Hardskills': ', '.join(extracted["HardSkills"]),
+            'Softskills': ', '.join(extracted["SoftSkills"]),
+            'Langues': ', '.join(extracted["Languages"]),
+            'URL': offer.get('origineOffre', {}).get('urlOrigine', '#')
         })
+        
+        # Met à jour la barre de progression dans le dashboard
+        progress_callback((i + 1) / total)
 
-    log_callback(f"Fin du traitement de {len(offers_df)} offres.")
+    logging.info("Traitement et extraction des compétences terminés.")
     
     return pd.DataFrame(processed_data)
