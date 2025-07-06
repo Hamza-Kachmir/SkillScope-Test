@@ -7,32 +7,35 @@ import os
 MODEL_NAME = 'gemini-1.5-flash-latest'
 
 PROMPT_COMPETENCES = """
-TA MISSION : Tu es un système expert en analyse sémantique pour une base de données de compétences. Ton rôle est d'analyser la compilation de descriptions de postes fournie ci-dessous, d'identifier TOUTES les compétences (hard skills, soft skills, langues), et de compter la fréquence d'apparition de chacune.
+TA MISSION : Tu es un système expert en analyse sémantique. Ton rôle est d'analyser la compilation de descriptions de postes fournie, d'identifier TOUTES les compétences, et de compter leur fréquence.
 
 CONTEXTE FOURNI :
-- Titre du Poste Principal (à ignorer si trouvé comme compétence) : `{titre_propre}`
+- Titre du Poste Principal : `{titre_propre}`
 
 RÈGLES STRICTES ET IMPÉRATIVES :
-1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON. Cet objet doit contenir une seule clé : `"skills"`. La valeur de cette clé doit être une **liste d'objets**.
-2.  **STRUCTURE DE L'OBJET COMPÉTENCE** : Chaque objet dans la liste doit avoir exactement deux clés :
-    - `"skill"`: Le nom de la compétence, normalisé et nettoyé. (ex: "Gestion de projet", "Python", "Anglais").
-    - `"frequency"`: Un **nombre entier** représentant combien de fois cette compétence ou ses synonymes directs ont été détectés dans l'ensemble du texte.
-3.  **COMPTAGE EXHAUSTIF** : Tu dois compter chaque mention. Si "Python" apparaît dans 30 offres différentes, sa fréquence doit être de 30.
-4.  **NORMALISATION** : Regroupe les synonymes. "UI/UX Design" et "Design UX/UI" doivent être comptés ensemble sous un seul nom, par exemple "UI/UX Design".
-5.  **FILTRAGE DU BRUIT** : Ignore les diplômes ("Bac+5"), les noms de métiers génériques ("technicien", "ouvrier") et le titre de poste principal (`{titre_propre}`).
-6.  **TRI** : La liste finale de compétences doit être triée par fréquence, de la plus élevée à la plus basse.
+1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON avec une seule clé : `"skills"`, contenant une liste d'objets.
+2.  **STRUCTURE DE L'OBJET COMPÉTENCE** : Chaque objet doit avoir deux clés :
+    - `"skill"`: Le nom de la compétence.
+    - `"frequency"`: Un nombre entier représentant sa fréquence.
+3.  **FILTRAGE DU BRUIT (RÈGLE CRUCIALE)** :
+    - **IGNORE IMPÉRATIVEMENT** le titre du poste principal (`{titre_propre}`) ainsi que ses variantes directes (ex: "Ingénieur de données", "Data Engineering"). Ils ne doivent JAMAIS apparaître dans la liste finale des compétences.
+    - IGNORE les diplômes ("Bac+5"), les noms de métiers génériques ("technicien", "ouvrier").
+4.  **NORMALISATION DE LA CASSE (RÈGLE CRUCIALE)** :
+    - **Toutes les compétences retournées doivent être en minuscules**, sauf les acronymes qui doivent rester en majuscules (ex: "sql", "python", "aws", "etl", mais "anglais", "gestion de projet").
+    - Regroupe les synonymes. "UI/UX Design" et "Design UX/UI" doivent être comptés ensemble sous un seul nom.
+5.  **COMPTAGE EXHAUSTIF** : Tu dois compter chaque mention. Si "Python" apparaît dans 30 offres, sa fréquence doit être de 30.
+6.  **TRI** : La liste finale doit être triée par fréquence, de la plus élevée à la plus basse.
 
 EXEMPLE DE SORTIE ATTENDUE :
 ```json
 {{
   "skills": [
-    {{ "skill": "SQL", "frequency": 45 }},
-    {{ "skill": "Python", "frequency": 42 }},
-    {{ "skill": "Gestion de projet", "frequency": 25 }},
-    {{ "skill": "Anglais", "frequency": 18 }}
+    {{ "skill": "sql", "frequency": 45 }},
+    {{ "skill": "python", "frequency": 42 }},
+    {{ "skill": "gestion de projet", "frequency": 25 }},
+    {{ "skill": "anglais", "frequency": 18 }}
   ]
 }}
-
 
 DESCRIPTION À ANALYSER :
 ---

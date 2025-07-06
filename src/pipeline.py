@@ -8,6 +8,7 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 def chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
+    """Divise une liste en sous-listes de taille chunk_size."""
     return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Logger) -> Dict[str, Any] | None:
@@ -52,18 +53,21 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     for result in batch_results:
         if result and 'skills' in result:
             for item in result['skills']:
-                if item.get('skill') and item.get('frequency'):
-                    final_frequencies[item['skill']] += item['frequency']
+                skill_name = item.get('skill')
+                frequency = item.get('frequency', 0)
+                if skill_name:
+                    normalized_skill = skill_name.strip().lower()
+                    final_frequencies[normalized_skill] += frequency
     
     if not final_frequencies:
-        logger.error("La fusion n'a produit aucune compétence. Fin du processus.")
+        logger.error("La fusion des résultats n'a produit aucune compétence. Fin du processus.")
         return None
 
     merged_skills = sorted([{"skill": skill, "frequency": freq} for skill, freq in final_frequencies.items()], key=lambda x: x['frequency'], reverse=True)
     final_result = {"skills": merged_skills}
     logger.info(f"Fusion terminée. {len(merged_skills)} compétences uniques aggrégées.")
 
-    logger.info(f"Étape 5 : Mise en cache du résultat avec la clé '{cache_key}'.")
+    logger.info(f"Étape 5 : Mise en cache du résultat final avec la clé '{cache_key}'.")
     add_to_cache(cache_key, final_result)
     
     logger.info(f"--- Fin du processus pour '{job_title}' ---")

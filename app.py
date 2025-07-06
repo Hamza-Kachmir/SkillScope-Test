@@ -23,6 +23,13 @@ class UiLogHandler(logging.Handler):
         msg = self.format(record)
         self.log_element.push(msg)
 
+def format_skill_name(skill: str) -> str:
+    """Met en majuscules les acronymes connus, et capitalize le reste."""
+    known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
+    if skill.lower() in known_acronyms:
+        return skill.upper()
+    return skill.capitalize()
+
 def display_results(container: ui.column, results_dict: dict, job_title: str, num_offers: int):
     container.clear()
     
@@ -35,6 +42,10 @@ def display_results(container: ui.column, results_dict: dict, job_title: str, nu
                     ui.icon('warning', color='warning')
                     ui.label("Aucune compétence pertinente n'a pu être extraite.").classes('text-yellow-800 ml-2')
         return
+
+    # Appliquer le formatage intelligent pour l'affichage
+    for item in skills_data:
+        item['skill'] = format_skill_name(item['skill'])
 
     df_skills = pd.DataFrame(skills_data)
     df_skills.rename(columns={'skill': 'Compétence', 'frequency': 'Fréquence'}, inplace=True)
@@ -164,11 +175,9 @@ def main_page():
             log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
             ui.button('Vider tout le cache', on_click=handle_flush_cache, color='negative').props('outline size=sm').classes('m-2')
 
-    # Bind the button's enabled state to both inputs
     def check_inputs():
-        return bool(job_input.value and offers_select.value)
+        return bool(job_input and job_input.value and offers_select and offers_select.value)
     
-    # We can't directly bind from two sources, so we use a timer to check.
     ui.timer(0.1, lambda: launch_button.set_enabled(check_inputs()))
 
 port = int(os.environ.get('PORT', 8080))
