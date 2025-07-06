@@ -3,9 +3,8 @@ import logging
 import streamlit as st
 from src.france_travail_api import FranceTravailClient
 from src.skill_extractor import load_all_skills, extract_skills
-from src.log_handler import setup_logging
 
-setup_logging()
+# NOTE : Les lignes "setup_logging" ont été supprimées car le dashboard s'en occupe.
 
 def get_job_offers(job_name: str) -> pd.DataFrame:
     logger = logging.getLogger(__name__)
