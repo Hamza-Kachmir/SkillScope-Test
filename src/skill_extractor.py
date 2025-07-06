@@ -1,7 +1,6 @@
 import json
 import os
 from unidecode import unidecode
-from src.normalization import normalize_text
 
 def load_all_skills(base_path='assets/skills'):
     hard_skills = set()
@@ -23,8 +22,6 @@ def extract_skills(text, hard_skills, soft_skills, languages):
     if not isinstance(text, str):
         return {'hard': [], 'soft': [], 'language': []}
 
-    # Nous n'utilisons pas normalize_text ici car unidecode+lower fait déjà le travail
-    # pour une simple correspondance. On garde l'import au cas où on en aurait besoin plus tard.
     normalized_text = unidecode(text.lower())
     
     found_hard = {skill for skill in hard_skills if skill in normalized_text}
