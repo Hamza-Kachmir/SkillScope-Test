@@ -1,42 +1,36 @@
-import pandas as pd
-import logging
+import json
 import os
-import re
+from unidecode import unidecode
+from .normalization import normalize_text
 
-SKILLS_SET = set()
-CSV_PATH = "assets/skills_fr.csv"
+def load_all_skills(base_path='assets/skills'):
+    hard_skills = set()
+    with open(os.path.join(base_path, 'HardSkills.json'), 'r', encoding='utf-8') as f:
+        hard_skills_data = json.load(f)
+        for category in hard_skills_data.values():
+            for skill in category:
+                hard_skills.add(unidecode(skill.lower()))
 
-def initialize_extractor():
-    global SKILLS_SET
-    if SKILLS_SET:
-        logging.info("Extracteur de compétences (local) déjà initialisé.")
-        return
+    with open(os.path.join(base_path, 'SoftSkills.json'), 'r', encoding='utf-8') as f:
+        soft_skills = {unidecode(skill.lower()) for skill in json.load(f)}
 
-    logging.info("Initialisation de l'extracteur via le fichier CSV local...")
-    if not os.path.exists(CSV_PATH):
-        logging.error(f"Fichier de compétences non trouvé : {CSV_PATH}")
-        return
+    with open(os.path.join(base_path, 'Languages.json'), 'r', encoding='utf-8') as f:
+        languages = {unidecode(skill.lower()) for skill in json.load(f)}
         
-    try:
-        df = pd.read_csv(CSV_PATH)
-        SKILLS_SET = set(df['preferredLabel'].str.lower().dropna())
-        logging.info(f"{len(SKILLS_SET)} compétences uniques chargées depuis le fichier local.")
-    except Exception as e:
-        logging.error(f"Erreur lors de la lecture du fichier CSV : {e}")
+    return hard_skills, soft_skills, languages
 
-def extract_skills_from_text(text: str) -> set[str]:
-    if not text or not SKILLS_SET:
-        return set()
+def extract_skills(text, hard_skills, soft_skills, languages):
+    if not isinstance(text, str):
+        return {'hard': [], 'soft': [], 'language': []}
 
-    text_lower = text.lower()
+    normalized_text = normalize_text(text)
     
-    # On normalise le texte pour ne garder que les mots et espaces
-    # et on s'assure qu'il est entouré d'espaces pour bien trouver les mots au début/fin.
-    normalized_text = ' ' + re.sub(r'[^a-z0-9\s-]', ' ', text_lower) + ' '
+    found_hard = {skill for skill in hard_skills if skill in normalized_text}
+    found_soft = {skill for skill in soft_skills if skill in normalized_text}
+    found_lang = {skill for skill in languages if skill in normalized_text}
     
-    found_skills = {
-        skill for skill in SKILLS_SET 
-        if len(skill) > 2 and f' {skill} ' in normalized_text
+    return {
+        'hard': list(found_hard),
+        'soft': list(found_soft),
+        'language': list(found_lang)
     }
-    
-    return found_skills

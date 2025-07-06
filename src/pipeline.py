@@ -1,44 +1,49 @@
 import pandas as pd
 import logging
-from typing import Callable
-import streamlit as st
+from .france_travail_api import fetch_job_offers
+from .skill_extractor import load_all_skills, extract_skills
+from .log_handler import setup_logging
 
-from src.france_travail_api import FranceTravailClient
-from src.skill_extractor import extract_skills_from_text, initialize_extractor
+setup_logging()
 
-def search_france_travail_offers(search_term: str, logger: logging.Logger) -> list[dict]:
-    try:
-        logger.info(f"Phase 1 : Lancement de la recherche d'offres France Travail pour '{search_term}'.")
-        client = FranceTravailClient(
-            client_id=st.secrets["FT_CLIENT_ID"], 
-            client_secret=st.secrets["FT_CLIENT_SECRET"], 
-            logger=logger
-        )
-        return client.search_offers(search_term, max_offers=150)
-    except Exception as e:
-        logger.error(f"Échec de l'appel à l'API France Travail : {e}")
-        return []
-
-def process_offers(all_offers: list[dict], progress_callback: Callable[[float], None]) -> pd.DataFrame | None:
-    if not all_offers:
-        return None
+def process_job_offers_pipeline(job_name, location_code):
+    logging.info(f"Début du pipeline pour le métier : '{job_name}' à la localisation : '{location_code}'")
     
-    initialize_extractor()
+    df = fetch_job_offers(job_name, location_code)
     
-    logging.info("Début de l'extraction des compétences pour les offres...")
+    if df.empty:
+        logging.warning("Aucune offre d'emploi trouvée. Le pipeline s'arrête.")
+        return pd.DataFrame(), []
 
-    for offer in all_offers:
-        description = offer.get('description', '')
-        offer['tags'] = sorted(list(extract_skills_from_text(description)))
+    logging.info(f"{len(df)} offres d'emploi récupérées.")
+    
+    hard_skills, soft_skills, languages = load_all_skills()
+    logging.info("Chargement des bases de données de compétences (Hard, Soft, Languages) terminé.")
+    
+    def extractor_wrapper(description):
+        return extract_skills(description, hard_skills, soft_skills, languages)
         
-    progress_callback(1.0)
-    logging.info("Extraction des compétences terminée.")
+    df['skills_found'] = df['description'].apply(extractor_wrapper)
     
-    df = pd.DataFrame(all_offers)
+    df['hard_skills'] = df['skills_found'].apply(lambda x: x['hard'])
+    df['soft_skills'] = df['skills_found'].apply(lambda x: x['soft'])
+    df['languages'] = df['skills_found'].apply(lambda x: x['language'])
     
-    final_cols = ['titre', 'entreprise', 'url', 'tags']
-    for col in final_cols:
-        if col not in df.columns:
-            df[col] = [[] for _ in range(len(df))] if col == 'tags' else None
-            
-    return df[final_cols]
+    total_hard_skills = df['hard_skills'].explode().nunique()
+    total_soft_skills = df['soft_skills'].explode().nunique()
+    total_languages = df['languages'].explode().nunique()
+
+    logging.info(f"Extraction terminée :")
+    logging.info(f"-> {total_hard_skills} compétences 'Hard Skills' uniques trouvées.")
+    logging.info(f"-> {total_soft_skills} compétences 'Soft Skills' uniques trouvées.")
+    logging.info(f"-> {total_languages} compétences 'Languages' uniques trouvées.")
+    
+    df['competences_uniques'] = df.apply(lambda row: sorted(list(set(row['hard_skills'] + row['soft_skills'] + row['languages']))), axis=1)
+    
+    all_skills_list = df['competences_uniques'].explode().dropna().unique().tolist()
+    
+    df_final = df[['id', 'intitule', 'entreprise_nom', 'type_contrat', 'url', 'competences_uniques']].copy()
+    
+    logging.info(f"Pipeline terminé. {len(df_final)} offres traitées. {len(all_skills_list)} compétences uniques au total identifiées.")
+    
+    return df_final, sorted(all_skills_list)
