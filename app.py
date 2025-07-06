@@ -4,8 +4,8 @@ import logging
 from typing import List, Dict
 import os
 
-# On importe 'run_in_executor' directement
-from nicegui import ui, app, run_in_executor
+# On importe seulement ui et app
+from nicegui import ui, app
 
 # Importe les fonctions de ton pipeline
 from src.pipeline import search_france_travail_offers, process_offers
@@ -83,8 +83,8 @@ async def run_analysis_logic(job_input: ui.input, results_container: ui.column, 
         progress_bar = ui.linear_progress(0).props('color=primary')
 
     try:
-        # 2. Lancer la recherche (on utilise 'run_in_executor' directement)
-        all_offers = await run_in_executor(search_france_travail_offers, job_title, logger)
+        # 2. Lancer la recherche (on utilise 'app.run_in_executor')
+        all_offers = await app.run_in_executor(search_france_travail_offers, job_title, logger)
         if not all_offers:
             raise ValueError(f"Aucune offre n'a été trouvée pour '{job_title}' sur France Travail.")
 
@@ -93,7 +93,7 @@ async def run_analysis_logic(job_input: ui.input, results_container: ui.column, 
         def progress_callback(value: float):
             progress_bar.set_value(value)
 
-        df_results = await run_in_executor(process_offers, all_offers, progress_callback)
+        df_results = await app.run_in_executor(process_offers, all_offers, progress_callback)
         if df_results is None or df_results.empty:
             raise ValueError("L'analyse a échoué ou aucune compétence pertinente n'a pu être extraite.")
         
