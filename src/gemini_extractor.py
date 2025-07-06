@@ -1,8 +1,8 @@
-    import google.generativeai as genai
-    from google.oauth2 import service_account
-    import logging
-    import json
-    import os
+import google.generativeai as genai
+from google.oauth2 import service_account
+import logging
+import json
+import os
 
     MODEL_NAME = 'gemini-1.5-pro-latest'
 
