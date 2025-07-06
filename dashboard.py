@@ -55,9 +55,15 @@ with content_col:
         st.session_state['job_title'] = job_to_scrape
 
         with setup_log_capture() as log_capture_stream:
-            with placeholder.container():
-                with st.spinner(f"Analyse des offres pour **{job_to_scrape}**..."):
-                    df_results, _ = process_job_offers_pipeline(job_to_scrape, "")
+            # --- NOUVELLE LOGIQUE D'AFFICHAGE DE LA PROGRESSION ---
+            progress_bar_placeholder = placeholder.empty()
+
+            def progress_callback(value, text):
+                progress_bar_placeholder.progress(value, text=text)
+
+            # Appel au pipeline en passant la fonction de callback
+            df_results, _ = process_job_offers_pipeline(job_to_scrape, "", progress_callback=progress_callback)
+            # --- FIN DE LA NOUVELLE LOGIQUE ---
 
             if df_results is not None and not df_results.empty:
                 df_results.rename(columns={'competences_uniques': 'tags'}, inplace=True)

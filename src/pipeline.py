@@ -2,10 +2,12 @@ import pandas as pd
 import logging
 import streamlit as st
 import re
+import time
 from src.france_travail_api import FranceTravailClient
 from src.skill_extractor import load_all_skills, extract_skills
 
 def get_job_offers(job_name: str) -> pd.DataFrame:
+    # ... (cette fonction ne change pas)
     logger = logging.getLogger(__name__)
     try:
         client_id = st.secrets["FRANCE_TRAVAIL_CLIENT_ID"]
@@ -37,8 +39,11 @@ def get_job_offers(job_name: str) -> pd.DataFrame:
     return pd.DataFrame(processed_offers)
 
 
-def process_job_offers_pipeline(job_name, location_code):
+def process_job_offers_pipeline(job_name, location_code, progress_callback=None):
+    # --- ÉTAPE 1: Récupération des offres ---
     logging.info(f"Début du pipeline pour le métier : '{job_name}'")
+    if progress_callback:
+        progress_callback(0, "Étape 1/2 : Récupération des offres d'emploi...")
     
     df = get_job_offers(job_name)
     
@@ -57,11 +62,21 @@ def process_job_offers_pipeline(job_name, location_code):
     languages_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in languages) + r')\b', re.IGNORECASE)
     logging.info("Compilation terminée.")
     
-    def extractor_wrapper(description):
-        return extract_skills(description, hard_skills_pattern, soft_skills_pattern, languages_pattern)
-        
-    df['skills_found'] = df['description'].apply(extractor_wrapper)
+    # --- ÉTAPE 2: Analyse des compétences ---
+    if progress_callback:
+        progress_callback(0, "Étape 2/2 : Analyse des compétences...")
     
+    results = []
+    total_offers = len(df)
+    for i, row in df.iterrows():
+        result = extract_skills(row['description'], hard_skills_pattern, soft_skills_pattern, languages_pattern)
+        results.append(result)
+        if progress_callback:
+            progress_value = (i + 1) / total_offers
+            progress_text = f"Étape 2/2 : Analyse des compétences... ({i+1}/{total_offers} offres)"
+            progress_callback(progress_value, progress_text)
+    
+    df['skills_found'] = results
     df['hard_skills'] = df['skills_found'].apply(lambda x: x['hard'])
     df['soft_skills'] = df['skills_found'].apply(lambda x: x['soft'])
     df['languages'] = df['skills_found'].apply(lambda x: x['language'])
