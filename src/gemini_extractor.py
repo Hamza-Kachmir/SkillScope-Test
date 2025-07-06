@@ -1,10 +1,11 @@
+# src/gemini_extractor.py
+
 import google.generativeai as genai
 from google.oauth2 import service_account
 import logging
 import json
 import os
 
-SERVICE_ACCOUNT_FILE = 'service-account-key.json' 
 MODEL_NAME = 'gemini-1.5-pro-latest'
 
 PROMPT_COMPETENCES = """
@@ -35,24 +36,27 @@ DESCRIPTION À ANALYSER :
 """
 
 model = None
+
 def initialize_gemini():
     global model
     if model:
         return True
     
-    if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        logging.critical(f"Fichier de service account '{SERVICE_ACCOUNT_FILE}' introuvable !")
+    google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
+    if not google_creds_json:
+        logging.critical("La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
         return False
         
     try:
-        credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
+        credentials_info = json.loads(google_creds_json)
+        credentials = service_account.Credentials.from_service_account_info(credentials_info)
         genai.configure(credentials=credentials)
         generation_config = {"temperature": 0.1, "response_mime_type": "application/json"}
         model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config)
-        logging.info("Client Gemini initialisé avec succès.")
+        logging.info("Client Gemini initialisé avec succès via les variables d'environnement.")
         return True
     except Exception as e:
-        logging.critical(f"Échec de l'initialisation de Gemini : {e}")
+        logging.critical(f"Échec de l'initialisation de Gemini à partir des variables d'environnement : {e}")
         return False
 
 async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) -> dict | None:
@@ -61,7 +65,6 @@ async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) ->
             return None
 
     mega_description = "\n\n---\n\n".join(descriptions)
-    
     prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, mega_description=mega_description)
     
     logging.info(f"Appel à l'API Gemini pour le métier '{job_title}'...")
