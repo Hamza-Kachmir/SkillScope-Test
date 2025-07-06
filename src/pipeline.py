@@ -5,8 +5,11 @@ from collections import defaultdict
 
 from src.france_travail_api import FranceTravailClient
 from src.cache_manager import get_cached_results, add_to_cache
-# CORRECTION : On importe le nouveau nom de la fonction
-from src.gemini_extractor import extract_skills_for_single_offer, initialize_gemini
+from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
+
+def chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
+    """Divise une liste en sous-listes de taille chunk_size."""
+    return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Logger) -> Dict[str, Any] | None:
     logger.info(f"--- Début du processus pour '{job_title}' avec {num_offers} offres ---")
@@ -39,44 +42,30 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
         logger.warning("Aucune description exploitable. Fin du processus.")
         return None
 
-    # Étape 3 : Lancement des analyses individuelles en parallèle
-    logger.info(f"Lancement de {len(descriptions)} analyses individuelles en parallèle...")
+    description_chunks = chunk_list(descriptions, 25)
+    logger.info(f"Étape 3 : Division en {len(description_chunks)} lots pour analyse parallèle.")
     
-    # Limite le nombre d'appels simultanés pour ne pas surcharger l'API
-    semaphore = asyncio.Semaphore(8)
-
-    async def worker(description):
-        async with semaphore:
-            return await extract_skills_for_single_offer(description)
-
-    tasks = [worker(desc) for desc in descriptions]
-    list_of_results_per_offer = await asyncio.gather(*tasks)
+    tasks = [extract_skills_with_gemini(job_title, chunk) for chunk in description_chunks]
+    batch_results = await asyncio.gather(*tasks)
     
-    # Étape 4 : Agrégation et comptage de fréquence
-    logger.info("Toutes les analyses sont terminées. Agrégation des résultats...")
+    logger.info("Étape 4 : Fusion des résultats...")
+    final_frequencies = defaultdict(int)
+    for result in batch_results:
+        if result and 'skills' in result:
+            for item in result['skills']:
+                skill_name = item.get('skill')
+                frequency = item.get('frequency', 0)
+                if skill_name:
+                    normalized_skill = skill_name.strip().lower()
+                    final_frequencies[normalized_skill] += frequency
     
-    all_skills_flat_list = []
-    for result in list_of_results_per_offer:
-        if result:
-            all_skills_flat_list.extend(result.get('hard_skills', []))
-            all_skills_flat_list.extend(result.get('soft_skills', []))
-            all_skills_flat_list.extend(result.get('languages', []))
-
-    if not all_skills_flat_list:
-        logger.error("L'analyse n'a produit aucune compétence. Fin du processus.")
+    if not final_frequencies:
+        logger.error("La fusion des résultats n'a produit aucune compétence. Fin du processus.")
         return None
 
-    # Compter la fréquence de chaque compétence
-    final_frequencies = defaultdict(int)
-    for skill in all_skills_flat_list:
-        normalized_skill = skill.strip().lower()
-        if normalized_skill:
-            final_frequencies[normalized_skill] += 1
-            
-    # Formater pour l'affichage et le cache
     merged_skills = sorted([{"skill": skill, "frequency": freq} for skill, freq in final_frequencies.items()], key=lambda x: x['frequency'], reverse=True)
     final_result = {"skills": merged_skills}
-    logger.info(f"Agrégation terminée. {len(merged_skills)} compétences uniques trouvées.")
+    logger.info(f"Fusion terminée. {len(merged_skills)} compétences uniques aggrégées.")
 
     logger.info(f"Étape 5 : Mise en cache du résultat final avec la clé '{cache_key}'.")
     add_to_cache(cache_key, final_result)

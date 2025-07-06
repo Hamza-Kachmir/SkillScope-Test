@@ -3,49 +3,46 @@ from google.oauth2 import service_account
 import logging
 import json
 import os
+import asyncio
+from typing import Dict, Any, List
+from collections import defaultdict
+
+# --- Start of src/gemini_extractor.py content ---
 
 MODEL_NAME = 'gemini-1.5-flash-latest'
 
-PROMPT_COMPETENCES_AVANCE = """
-TA MISSION : Tu es un système expert en analyse sémantique pour une base de données RH. Ton rôle est d'analyser une description de poste et d'en extraire les compétences (savoir-faire, savoir-être, langues) avec une précision absolue, en respectant des règles de normalisation et de déduplication très strictes.
+PROMPT_COMPETENCES = """
+TA MISSION : Tu es un système expert en analyse sémantique. Ton rôle est d'analyser la compilation de descriptions de postes fournie, d'identifier TOUTES les compétences, et de compter leur fréquence.
+
+CONTEXTE FOURNI :
+- Titre du Poste Principal : `{titre_propre}`
 
 RÈGLES STRICTES ET IMPÉRATIVES :
+1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON avec une seule clé : `"skills"`, contenant une liste d'objets.
+2.  **STRUCTURE DE L'OBJET COMPÉTENCE** : Chaque objet doit avoir deux clés :
+    - `"skill"`: Le nom de la compétence.
+    - `"frequency"`: Un nombre entier représentant sa fréquence.
+3.  **FILTRAGE DU BRUIT (RÈGLE CRUCIALE)** :
+    - **IGNORE IMPÉRATIVEMENT** le titre du poste principal (`{titre_propre}`) ainsi ainsi que ses variantes directes (ex: "Ingénieur de données", "Data Engineering"). Ils ne doivent JAMAIS apparaître dans la liste finale des compétences.
+    - IGNORE les diplômes ("Bac+5"), les noms de métiers génériques ("technicien", "ouvrier").
+4.  **NORMALISATION DE LA CASSE (RÈGLE CRUCIALE)** :
+    - **Toutes les compétences retournées doivent être en minuscules**, sauf les acronymes qui doivent rester en majuscules (ex: "sql", "python", "aws", "etl", mais "anglais", "gestion de projet").
+    - Regroupe les synonymes. "UI/UX Design" et "Design UX/UI" doivent être comptés ensemble sous un seul nom.
+5.  **COMPTAGE EXHAUSTIF** : Tu dois compter chaque mention. Si "Python" apparaît dans 30 offres, sa fréquence doit être de 30.
+6.  **TRI** : La liste finale doit être triée par fréquence, de la plus élevée à la plus basse.
 
-1.  **DÉCOMPOSITION** :
-    - Si une compétence contient un slash (/), une virgule (,) ou le mot "et", sépare-la en compétences distinctes. Exemple : "CI/CD" devient ["CI", "CD"]. "Python, Java et Scala" devient ["Python", "Java", "Scala"].
-    - Si une liste de compétences se trouve entre parenthèses, extrais chaque élément comme une compétence individuelle. Exemple : "Langages (Python, Go)" devient ["Python", "Go"].
-
-2.  **NORMALISATION ET DÉDUPLICATION (RÈGLE LA PLUS IMPORTANTE)** :
-    - Au sein de cette **unique** description de poste, une même compétence ne doit apparaître **qu'une seule fois** dans la liste finale, même si elle est mentionnée plusieurs fois dans le texte.
-    - Identifie la technologie de base. Pour des termes comme "Spark SQL" ou "PySpark", les compétences à extraire sont ["Spark", "SQL", "PySpark"]. Ne garde que les termes les plus pertinents et atomiques.
-    - Ignore les termes génériques comme "langage objet", "bases de données", etc. quand des exemples spécifiques sont donnés.
-
-3.  **GESTION DE LA CASSE** :
-    - Les acronymes (généralement 3 lettres ou moins, ou des termes connus comme DevOps) doivent être retournés en **MAJUSCULES** (ex: "SQL", "AWS", "GCP", "CI", "CD").
-    - Toutes les autres compétences doivent être en **minuscules** (ex: "python", "java", "gestion de projet").
-
-4.  **FORMAT DE SORTIE** : Le résultat doit être un unique objet JSON valide avec les clés "hard_skills", "soft_skills", et "languages". Les listes doivent être vides si aucune compétence n'est trouvée.
-
-EXEMPLES COMPLEXES :
-
-- **Description 1** : "Nous cherchons un expert en langages de programmation (Python, Java, et Scala). Maîtrise de CI/CD et SQL requise. Le développeur SQL devra aussi connaître Spark, notamment PySpark et Spark SQL."
-- **JSON Attendu 1** :
-  ```json
-  {
-    "hard_skills": ["python", "java", "scala", "CI", "CD", "SQL", "spark", "pyspark"],
-    "soft_skills": [],
-    "languages": []
-  }
-Description 2 : "Bonne communication orale et écrite. Anglais courant. La connaissance d'un CRM (Salesforce) est un plus."
-JSON Attendu 2 :
-
-{
-  "hard_skills": ["salesforce"],
-  "soft_skills": ["communication orale", "communication écrite"],
-  "languages": ["anglais"]
-}
-DESCRIPTION À ANALYSER :
-{description_text}
+EXEMPLE DE SORTIE ATTENDUE :
+```json
+{{
+  "skills": [
+    {{ "skill": "sql", "frequency": 45 }},
+    {{ "skill": "python", "frequency": 42 }},
+    {{ "skill": "gestion de projet", "frequency": 25 }},
+    {{ "skill": "anglais", "frequency": 18 }}
+  ]
+}}
+DESCRIPTIONS À ANALYSER :
+{mega_description}
 """
 
 model = None
@@ -72,33 +69,120 @@ def initialize_gemini():
         logging.critical(f"Échec de l'initialisation de Gemini : {e}")
         return False
 
-async def extract_skills_for_single_offer(description: str) -> dict | None:
+async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) -> dict | None:
     if not model:
         if not initialize_gemini():
             return None
 
-    if not description or not isinstance(description, str) or len(description.strip()) < 20:
-        return None
+    mega_description = "\n\n---\n\n".join(descriptions)
+    prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, mega_description=mega_description)
 
-    prompt = PROMPT_COMPETENCES_AVANCE.format(description_text=description)
-
-    response_text = ""
+    logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
         response = await model.generate_content_async(prompt)
-        response_text = response.text
-        
-        # --- DÉBOGAGE : On logue la réponse brute ---
-        logging.info("--- DÉBUT RÉPONSE BRUTE GEMINI ---")
-        logging.info(response_text)
-        logging.info("--- FIN RÉPONSE BRUTE GEMINI ---")
-        
-        cleaned_response = response_text.strip().replace("```json", "").replace("```", "").strip()
-        skills_json = json.loads(cleaned_response)
+        skills_json = json.loads(response.text)
+        logging.info("Réponse JSON de Gemini reçue et parsée avec succès pour un lot.")
         return skills_json
+        
     except json.JSONDecodeError as e:
-        logging.error(f"!!! ERREUR JSON DECODE !!! - {e}")
-        logging.error(f"Réponse brute qui a causé l'erreur:\n{response_text}")
+        logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}")
         return None
     except Exception as e:
-        logging.error(f"!!! ERREUR INATTENDUE de type {type(e).__name__} !!! - {e}")
+        logging.error(f"Erreur lors de l'appel à l'API Gemini : {e}")
         return None
+
+# --- End of src/gemini_extractor.py content ---
+
+# --- Start of src/pipeline.py content (assuming FranceTravailClient and cache_manager are available) ---
+
+# Mocking external dependencies for the purpose of consolidation.
+# In a real scenario, these would be imported from their actual files.
+class FranceTravailClient:
+    def __init__(self, client_id, client_secret, logger):
+        self.logger = logger
+        self.logger.warning("FranceTravailClient is a mock in this consolidated file. It will not fetch real data.")
+
+    async def search_offers_async(self, job_title, max_offers):
+        self.logger.info(f"Mocking search for {max_offers} offers for '{job_title}'.")
+        # Return some dummy data for demonstration
+        return [{"description": "Description 1 for " + job_title}, {"description": "Description 2 for " + job_title}] * (max_offers // 2 if max_offers > 0 else 1)
+
+_cache = {} # Simple in-memory mock cache
+def get_cached_results(key):
+    logging.info(f"Mock Cache: Getting results for key '{key}'")
+    return _cache.get(key)
+
+def add_to_cache(key, value):
+    logging.info(f"Mock Cache: Adding results for key '{key}'")
+    _cache[key] = value
+
+def chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
+    """Divise une liste en sous-listes de taille chunk_size."""
+    return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Logger) -> Dict[str, Any] | None:
+    logger.info(f"--- Début du processus pour '{job_title}' avec {num_offers} offres ---")
+    
+    cache_key = f"{job_title.lower().strip()}@{num_offers}"
+    
+    logger.info(f"Étape 1 : Vérification du cache avec la clé '{cache_key}'.")
+    cached_results = get_cached_results(cache_key)
+    if cached_results:
+        logger.info(f"Clé '{cache_key}' trouvée dans le cache. Fin du processus.")
+        return cached_results
+    
+    logger.info(f"Clé '{cache_key}' non trouvée. Poursuite du processus d'extraction.")
+    
+    if not initialize_gemini():
+        raise ConnectionError("Impossible d'initialiser l'API Gemini. Vérifiez les logs.")
+
+    logger.info(f"Étape 2 : Appel à l'API France Travail pour '{job_title}'.")
+    # client_id and client_secret should be passed from environment variables or a config file in a real app
+    ft_client = FranceTravailClient(client_id=None, client_secret=None, logger=logger) 
+    
+    all_offers = await ft_client.search_offers_async(job_title, max_offers=num_offers)
+    if not all_offers:
+        logger.warning(f"Aucune offre France Travail trouvée. Fin du processus.")
+        return None
+        
+    logger.info(f"{len(all_offers)} offres France Travail trouvées.")
+
+    descriptions = [offer['description'] for offer in all_offers if offer.get('description')]
+    if not descriptions:
+        logger.warning("Aucune description exploitable. Fin du processus.")
+        return None
+
+    description_chunks = chunk_list(descriptions, 25)
+    logger.info(f"Étape 3 : Division en {len(description_chunks)} lots pour analyse parallèle.")
+    
+    tasks = [extract_skills_with_gemini(job_title, chunk) for chunk in description_chunks]
+    batch_results = await asyncio.gather(*tasks)
+    
+    logger.info("Étape 4 : Fusion des résultats...")
+    final_frequencies = defaultdict(int)
+    for result in batch_results:
+        if result and 'skills' in result:
+            for item in result['skills']:
+                skill_name = item.get('skill')
+                frequency = item.get('frequency', 0)
+                if skill_name:
+                    # CORRECTION : On normalise la clé en minuscules pour la fusion
+                    normalized_skill = skill_name.strip().lower()
+                    final_frequencies[normalized_skill] += frequency
+    
+    if not final_frequencies:
+        logger.error("La fusion des résultats n'a produit aucune compétence. Fin du processus.")
+        return None
+
+    # On garde les clés en minuscules pour le stockage, on gèrera l'affichage dans app.py
+    merged_skills = sorted([{"skill": skill, "frequency": freq} for skill, freq in final_frequencies.items()], key=lambda x: x['frequency'], reverse=True)
+    final_result = {"skills": merged_skills}
+    logger.info(f"Fusion terminée. {len(merged_skills)} compétences uniques aggrégées.")
+
+    logger.info(f"Étape 5 : Mise en cache du résultat final avec la clé '{cache_key}'.")
+    add_to_cache(cache_key, final_result)
+    
+    logger.info(f"--- Fin du processus pour '{job_title}' ---")
+    return final_result
+
+# --- End of src/pipeline.py content ---

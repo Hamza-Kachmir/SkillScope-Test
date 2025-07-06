@@ -1,6 +1,5 @@
 import pandas as pd
 import logging
-import asyncio
 from nicegui import ui, app, run
 import os
 import sys
@@ -55,7 +54,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str, nu
             with ui.row(wrap=False).classes('items-center'):
                 ui.label(f"📊 Résultats pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
                 ui.label(f"({num_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
-            refresh_button = ui.button('Rafraîchir', icon='refresh', on_click=lambda: refresh_analysis(job_title, num_offers))
+            refresh_button = ui.button('Rafraîchir', icon='refresh', on_click=lambda: start_analysis(force_refresh=True))
             refresh_button.props('color=grey-6 flat dense')
             with ui.tooltip('Supprime les données du cache pour cette recherche et relance une nouvelle analyse.'):
                 ui.icon('info', color='grey')
@@ -87,6 +86,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str, nu
         table.bind_filter_from(filter_input, 'value')
 
 async def perform_analysis_in_background(job_title: str, num_offers: int):
+    """Contient la logique d'analyse longue, destinée à tourner en arrière-plan."""
     logger = logging.getLogger()
     
     try:
@@ -106,15 +106,17 @@ async def perform_analysis_in_background(job_title: str, num_offers: int):
                     ui.label(str(e)).classes('text-negative font-bold ml-2')
 
 async def start_analysis(force_refresh: bool = False):
+    """Prépare l'UI et lance la tâche d'analyse en arrière-plan."""
     if not all([job_input, offers_select, job_input.value, offers_select.value]):
         ui.notify("Veuillez entrer un métier et sélectionner un volume.", color='warning')
         return
 
     job_title = job_input.value
     num_offers = offers_select.value
+    cache_key = f"{job_title.lower().strip()}@{num_offers}"
     
     if force_refresh:
-        cache_key = f"{job_title.lower().strip()}@{num_offers}"
+        # Rafraîchir ne fait que supprimer du cache. L'analyse suivra.
         await run.io_bound(delete_from_cache, cache_key)
 
     results_container.clear()
@@ -132,8 +134,8 @@ async def start_analysis(force_refresh: bool = False):
         ui.spinner(size='lg', color='primary').classes('mx-auto')
         ui.label(f"Analyse de {num_offers} offres en cours...").classes('mx-auto text-gray-600')
 
-    # CORRECTION : On utilise asyncio.create_task pour lancer la tâche de fond
-    asyncio.create_task(perform_analysis_in_background(job_title, num_offers))
+    # Lance la tâche longue en arrière-plan sans bloquer
+    app.add_background_task(perform_analysis_in_background, job_title, num_offers)
 
 async def refresh_analysis(job_title_to_refresh: str, num_offers_to_refresh: int):
     job_input.value = job_title_to_refresh
