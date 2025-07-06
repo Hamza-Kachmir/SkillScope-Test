@@ -1,47 +1,48 @@
-# src/gemini_extractor.py
+    import google.generativeai as genai
+    from google.oauth2 import service_account
+    import logging
+    import json
+    import os
 
-import google.generativeai as genai
-from google.oauth2 import service_account
-import logging
-import json
-import os
+    MODEL_NAME = 'gemini-1.5-pro-latest'
 
-MODEL_NAME = 'gemini-1.5-pro-latest'
+    PROMPT_COMPETENCES = """
+    TA MISSION : Tu es un système expert en analyse sémantique pour une base de données de compétences. Ton rôle est d'analyser la compilation de descriptions de postes fournie ci-dessous, d'identifier TOUTES les compétences (hard skills, soft skills, langues), et de compter la fréquence d'apparition de chacune.
 
-PROMPT_COMPETENCES = """
-TA MISSION : Tu es un système expert en analyse sémantique pour une base de données de compétences nommée "WikiSkills". Ton rôle est d'analyser une description de poste et d'en extraire les compétences (savoir-faire, savoir-être, langues) avec une précision absolue pour garantir une donnée finale propre, normalisée et sans aucun bruit.
+    CONTEXTE FOURNI :
+    - Titre du Poste Principal (à ignorer si trouvé comme compétence) : `{titre_propre}`
 
-CONTEXTE FOURNI :
-- Titre du Poste à Ignorer : `{titre_propre}`
+    RÈGLES STRICTES ET IMPÉRATIVES :
+    1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON. Cet objet doit contenir une seule clé : `"skills"`. La valeur de cette clé doit être une **liste d'objets**.
+    2.  **STRUCTURE DE L'OBJET COMPÉTENCE** : Chaque objet dans la liste doit avoir exactement deux clés :
+        - `"skill"`: Le nom de la compétence, normalisé et nettoyé. (ex: "Gestion de projet", "Python", "Anglais").
+        - `"frequency"`: Un **nombre entier** représentant combien de fois cette compétence ou ses synonymes directs ont été détectés dans l'ensemble du texte.
+    3.  **COMPTAGE EXHAUSTIF** : Tu dois compter chaque mention. Si "Python" apparaît dans 30 offres différentes, sa fréquence doit être de 30.
+    4.  **NORMALISATION** : Regroupe les synonymes. "UI/UX Design" et "Design UX/UI" doivent être comptés ensemble sous un seul nom, par exemple "UI/UX Design".
+    5.  **FILTRAGE DU BRUIT** : Ignore les diplômes ("Bac+5"), les noms de métiers génériques ("technicien", "ouvrier") et le titre de poste principal (`{titre_propre}`).
+    6.  **TRI** : La liste finale de compétences doit être triée par fréquence, de la plus élevée à la plus basse.
 
-RÈGLES STRICTES ET IMPÉRATIVES :
-1. FORMAT JSON : Le résultat doit être un unique objet JSON valide avec les clés "hard_skills", "soft_skills", et "languages". Tous les guillemets dans les compétences doivent être échappés (\\").
-2. CATÉGORISATION STRICTE : Les compétences manuelles pratiques (ex: 'Bricolage', 'Soudure', 'Mécanique') doivent TOUJOURS être classées en `hard_skills`.
-3. FILTRAGE INTELLIGENT DU BRUIT :
-    - IGNORE le titre de poste principal (`{titre_propre}`) et ses variantes.
-    - IGNORE les noms de métiers génériques (ex: 'agent', 'ouvrier', 'technicien') s'ils sont utilisés seuls.
-    - IGNORE tous les diplômes et niveaux d'étude (ex: "Bac+5", "DEC").
-4. GESTION AVANCÉE DES ACRONYMES ET PARENTHÈSES :
-    - Si un acronyme est expliqué (ex: "MCO (Maintenance en Condition Opérationnelle)"), extrais uniquement la version longue.
-    - Si une parenthèse précise un outil (ex: "CRM (Salesforce)"), extrais uniquement l'outil.
-    - Si une parenthèse liste des exemples (ex: "Gestion de projet (planning, budget)"), décompose-la en compétences distinctes.
-5. NORMALISATION ET DÉDUPLICATION :
-    - Ne produis aucun doublon.
-    - Normalise les compétences synonymes ou permutées (ex: "DESIGN UI/UX" et "DESIGN UX/UI" doivent tous les deux devenir ["UI/UX Design"]).
+    EXEMPLE DE SORTIE ATTENDUE :
+    ```json
+    {{
+    "skills": [
+        {{ "skill": "SQL", "frequency": 45 }},
+        {{ "skill": "Python", "frequency": 42 }},
+        {{ "skill": "Gestion de projet", "frequency": 25 }},
+        {{ "skill": "Anglais", "frequency": 18 }}
+    ]
+    }}
+    DESCRIPTIONS À ANALYSER :
+    {mega_description}
+    """
 
-DESCRIPTION À ANALYSER :
----
-{mega_description}
----
-"""
+    model = None
 
-model = None
-
-def initialize_gemini():
+    def initialize_gemini():
     global model
     if model:
-        return True
-    
+    return True
+
     google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
     if not google_creds_json:
         logging.critical("La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
@@ -56,27 +57,22 @@ def initialize_gemini():
         logging.info("Client Gemini initialisé avec succès via les variables d'environnement.")
         return True
     except Exception as e:
-        logging.critical(f"Échec de l'initialisation de Gemini à partir des variables d'environnement : {e}")
+        logging.critical(f"Échec de l'initialisation de Gemini : {e}")
         return False
-
-async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) -> dict | None:
+    async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) -> dict | None:
     if not model:
-        if not initialize_gemini():
-            return None
+    if not initialize_gemini():
+    return None
 
     mega_description = "\n\n---\n\n".join(descriptions)
     prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, mega_description=mega_description)
-    
+
     logging.info(f"Appel à l'API Gemini pour le métier '{job_title}'...")
     try:
         response = await model.generate_content_async(prompt)
         skills_json = json.loads(response.text)
-        
-        return {
-            "hard_skills": skills_json.get('hard_skills', []),
-            "soft_skills": skills_json.get('soft_skills', []),
-            "languages": skills_json.get('languages', [])
-        }
+        logging.info("Réponse JSON de Gemini reçue et parsée avec succès.")
+        return skills_json
         
     except json.JSONDecodeError as e:
         logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}")
@@ -84,3 +80,4 @@ async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) ->
     except Exception as e:
         logging.error(f"Erreur lors de l'appel à l'API Gemini : {e}")
         return None
+
