@@ -6,9 +6,10 @@ def load_all_skills(base_path='assets/skills'):
     hard_skills = set()
     with open(os.path.join(base_path, 'HardSkills.json'), 'r', encoding='utf-8') as f:
         hard_skills_data = json.load(f)
-        for category in hard_skills_data.values():
-            for skill in category:
-                hard_skills.add(unidecode(skill.lower()))
+    
+    # MODIFICATION : On lit le fichier comme une simple liste, pas un dictionnaire.
+    for skill in hard_skills_data:
+        hard_skills.add(unidecode(skill.lower()))
 
     with open(os.path.join(base_path, 'SoftSkills.json'), 'r', encoding='utf-8') as f:
         soft_skills = {unidecode(skill.lower()) for skill in json.load(f)}
