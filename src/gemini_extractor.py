@@ -32,6 +32,7 @@ EXEMPLE DE SORTIE ATTENDUE :
     {{ "skill": "Anglais", "frequency": 18 }}
   ]
 }}
+
 DESCRIPTIONS À ANALYSER :
 {mega_description}
 """
