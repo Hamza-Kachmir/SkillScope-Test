@@ -1,15 +1,49 @@
 import pandas as pd
 import logging
-from .france_travail_api import fetch_job_offers
-from .skill_extractor import load_all_skills, extract_skills
-from .log_handler import setup_logging
+import streamlit as st
+from src.france_travail_api import FranceTravailClient
+from src.skill_extractor import load_all_skills, extract_skills
+from src.log_handler import setup_logging
 
 setup_logging()
 
+def get_job_offers(job_name: str) -> pd.DataFrame:
+    logger = logging.getLogger(__name__)
+    try:
+        client_id = st.secrets["FRANCE_TRAVAIL_CLIENT_ID"]
+        client_secret = st.secrets["FRANCE_TRAVAIL_CLIENT_SECRET"]
+    except KeyError:
+        logger.critical("Les secrets 'FRANCE_TRAVAIL_CLIENT_ID' et/ou 'FRANCE_TRAVAIL_CLIENT_SECRET' ne sont pas configurés.")
+        st.error("Les clés API ne sont pas configurées dans les secrets de l'application.")
+        return pd.DataFrame()
+
+    client = FranceTravailClient(client_id=client_id, client_secret=client_secret, logger=logger)
+    offers_list = client.search_offers(search_term=job_name)
+
+    if not offers_list:
+        return pd.DataFrame()
+
+    processed_offers = []
+    for offer in offers_list:
+        entreprise = offer.get('entreprise', {}) if isinstance(offer.get('entreprise'), dict) else {}
+        origine_offre = offer.get('origineOffre', {}) if isinstance(offer.get('origineOffre'), dict) else {}
+        
+        processed_offers.append({
+            'id': offer.get('id', ''),
+            'intitule': offer.get('intitule', 'Titre non précisé'),
+            'description': offer.get('description', ''),
+            'url': origine_offre.get('urlOrigine', '#'),
+            'entreprise_nom': entreprise.get('nom', 'Non précisé'),
+            'type_contrat': offer.get('typeContratLibelle', 'Non précisé')
+        })
+    return pd.DataFrame(processed_offers)
+
+
 def process_job_offers_pipeline(job_name, location_code):
-    logging.info(f"Début du pipeline pour le métier : '{job_name}' à la localisation : '{location_code}'")
+    logging.info(f"Début du pipeline pour le métier : '{job_name}'")
     
-    df = fetch_job_offers(job_name, location_code)
+    # Le paramètre location_code est ignoré comme vu précédemment.
+    df = get_job_offers(job_name)
     
     if df.empty:
         logging.warning("Aucune offre d'emploi trouvée. Le pipeline s'arrête.")
@@ -18,7 +52,7 @@ def process_job_offers_pipeline(job_name, location_code):
     logging.info(f"{len(df)} offres d'emploi récupérées.")
     
     hard_skills, soft_skills, languages = load_all_skills()
-    logging.info("Chargement des bases de données de compétences (Hard, Soft, Languages) terminé.")
+    logging.info("Chargement des bases de données de compétences terminé.")
     
     def extractor_wrapper(description):
         return extract_skills(description, hard_skills, soft_skills, languages)
