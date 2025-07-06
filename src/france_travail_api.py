@@ -1,5 +1,7 @@
 import requests
+import aiohttp
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import List, Dict
 
@@ -8,15 +10,24 @@ API_BASE_URL = "https://api.francetravail.io/partenaire/offresdemploi"
 
 class FranceTravailClient:
     def __init__(self, client_id: str, client_secret: str, logger: logging.Logger):
-        self.client_id = client_id
-        self.client_secret = client_secret
+        self.client_id = client_id or os.getenv("FT_CLIENT_ID")
+        self.client_secret = client_secret or os.getenv("FT_CLIENT_SECRET")
         self.logger = logger
         self._access_token = None
         self._token_expiry_time = None
 
+        if not self.client_id or not self.client_secret:
+            self.logger.critical("Les variables d'environnement FT_CLIENT_ID et FT_CLIENT_SECRET ne sont pas définies !")
+            raise ValueError("Configuration de l'API manquante sur le serveur.")
+
     def _get_access_token(self) -> bool:
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        data = {'grant_type': 'client_credentials', 'client_id': self.client_id, 'client_secret': self.client_secret, 'scope': 'o2dsoffre api_offresdemploiv2'}
+        data = {
+            'grant_type': 'client_credentials',
+            'client_id': self.client_id,
+            'client_secret': self.client_secret,
+            'scope': 'api_offresdemploiv2 o2dsoffre'
+        }
         try:
             self.logger.info("France Travail : Demande d'un nouveau token d'accès...")
             response = requests.post(AUTH_URL, headers=headers, data=data, timeout=10)
@@ -34,28 +45,37 @@ class FranceTravailClient:
     def _is_token_valid(self) -> bool:
         return self._access_token and self._token_expiry_time and datetime.now() < self._token_expiry_time
 
-    def search_offers(self, search_term: str, max_offers: int = 150) -> List[Dict]:
+    async def search_offers_async(self, search_term: str, max_offers: int = 150) -> List[Dict]:
         if not self._is_token_valid():
-            if not self._get_access_token(): return []
+            if not self._get_access_token():
+                return []
+        
         headers = {'Authorization': f'Bearer {self._access_token}'}
         params = {'motsCles': search_term, 'range': f'0-{max_offers - 1}', 'sort': 1}
+        url = f"{API_BASE_URL}/v2/offres/search"
+        
+        self.logger.info(f"France Travail : Exécution de la recherche async pour '{search_term}'.")
         try:
-            self.logger.info(f"France Travail : Exécution de la recherche pour '{search_term}'.")
-            response = requests.get(f"{API_BASE_URL}/v2/offres/search", headers=headers, params=params, timeout=15)
-            if response.status_code == 204: return []
-            response.raise_for_status()
-            api_results = response.json().get('resultats', [])
-            self.logger.info(f"France Travail : {len(api_results)} offres reçues via l'API.")
-            
-            formatted_offers = []
-            for offer in api_results:
-                formatted_offers.append({
-                    'titre': offer.get('intitule', 'Titre non précisé'), 
-                    'entreprise': offer.get('entreprise', {}).get('nom', 'Non précisé'), 
-                    'url': offer.get('origineOffre', {}).get('urlOrigine', '#'), 
-                    'description': offer.get('description', '')
-                })
-            return formatted_offers
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"France Travail : Erreur lors de la recherche. {e}")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, params=params, timeout=20) as response:
+                    if response.status == 204:
+                        self.logger.info("France Travail : Aucune offre reçue (204 No Content).")
+                        return []
+                    
+                    response.raise_for_status()
+                    api_response = await response.json()
+                    api_results = api_response.get('resultats', [])
+                    self.logger.info(f"France Travail : {len(api_results)} offres reçues via l'API.")
+
+                    formatted_offers = []
+                    for offer in api_results:
+                        formatted_offers.append({
+                            'titre': offer.get('intitule', 'Titre non précisé'), 
+                            'entreprise': offer.get('entreprise', {}).get('nom', 'Non précisé'), 
+                            'url': offer.get('origineOffre', {}).get('urlOrigine', '#'), 
+                            'description': offer.get('description', '')
+                        })
+                    return formatted_offers
+        except aiohttp.ClientError as e:
+            self.logger.error(f"France Travail : Erreur lors de la recherche async. {e}")
             return []

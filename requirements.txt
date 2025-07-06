@@ -2,3 +2,5 @@ nicegui
 pandas
 requests
 numpy
+google-generativeai
+aiohttp
