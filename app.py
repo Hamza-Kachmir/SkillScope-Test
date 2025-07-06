@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import logging
 from typing import List
+import os
 
 from nicegui import ui, app
 
@@ -147,4 +148,7 @@ async def main_page():
             table.bind_filter_from(filter_input, 'value')
 
 # --- Point d'entrée pour lancer l'application ---
-ui.run()
+# On configure le port pour qu'il corresponde à celui attendu par Render.
+# Render fournit la variable d'environnement PORT, on la récupère.
+port = int(os.environ.get('PORT', 10000))
+ui.run(host='0.0.0.0', port=port, title='SkillScope')
