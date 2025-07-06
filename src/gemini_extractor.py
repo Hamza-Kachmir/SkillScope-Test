@@ -4,7 +4,7 @@ import logging
 import json
 import os
 
-MODEL_NAME = 'gemini-1.5-pro-latest'
+MODEL_NAME = 'gemini-1.5-flash-latest'
 
 PROMPT_COMPETENCES = """
 TA MISSION : Tu es un système expert en analyse sémantique pour une base de données de compétences. Ton rôle est d'analyser la compilation de descriptions de postes fournie ci-dessous, d'identifier TOUTES les compétences (hard skills, soft skills, langues), et de compter la fréquence d'apparition de chacune.
@@ -51,7 +51,7 @@ def initialize_gemini():
     if not google_creds_json:
         logging.critical("La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
         return False
-    
+        
     try:
         credentials_info = json.loads(google_creds_json)
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
@@ -72,13 +72,13 @@ async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) ->
     mega_description = "\n\n---\n\n".join(descriptions)
     prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, mega_description=mega_description)
 
-    logging.info(f"Appel à l'API Gemini pour le métier '{job_title}'...")
+    logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
         response = await model.generate_content_async(prompt)
         skills_json = json.loads(response.text)
-        logging.info("Réponse JSON de Gemini reçue et parsée avec succès.")
+        logging.info("Réponse JSON de Gemini reçue et parsée avec succès pour un lot.")
         return skills_json
-    
+        
     except json.JSONDecodeError as e:
         logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}")
         return None
