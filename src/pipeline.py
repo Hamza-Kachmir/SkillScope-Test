@@ -1,111 +1,86 @@
-import streamlit as st
 import pandas as pd
-import numpy as np
-import base64
-import os
 import logging
-from src.pipeline import process_job_offers_pipeline
-from src.log_handler import setup_log_capture
+import streamlit as st
+import re
+from src.france_travail_api import FranceTravailClient
+from src.skill_extractor import load_all_skills, extract_skills
 
-st.set_page_config(
-    page_title="SkillScope | Analyseur de Compétences",
-    page_icon="assets/SkillScope.svg",
-    layout="wide"
-)
+def get_job_offers(job_name: str) -> pd.DataFrame:
+    logger = logging.getLogger(__name__)
+    try:
+        client_id = st.secrets["FRANCE_TRAVAIL_CLIENT_ID"]
+        client_secret = st.secrets["FRANCE_TRAVAIL_CLIENT_SECRET"]
+    except KeyError:
+        logger.critical("Les secrets 'FRANCE_TRAVAIL_CLIENT_ID' et/ou 'FRANCE_TRAVAIL_CLIENT_SECRET' ne sont pas configurés.")
+        st.error("Les clés API ne sont pas configurées dans les secrets de l'application.")
+        return pd.DataFrame()
 
-st.markdown("""
-<style>
-    .main .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-</style>
-""", unsafe_allow_html=True)
+    client = FranceTravailClient(client_id=client_id, client_secret=client_secret, logger=logger)
+    offers_list = client.search_offers(search_term=job_name)
 
-def load_svg(svg_file: str) -> str | None:
-    if not os.path.exists(svg_file): return None
-    with open(svg_file, "r", encoding="utf-8") as f: svg = f.read()
-    return f"data:image/svg+xml;base64,{base64.b64encode(svg.encode('utf-8')).decode('utf-8')}"
+    if not offers_list:
+        return pd.DataFrame()
 
-logo_svg_base64 = load_svg("assets/SkillScope.svg")
-if logo_svg_base64:
-    st.markdown(f'<div style="text-align: center;"><img src="{logo_svg_base64}" width="300"></div>', unsafe_allow_html=True)
-else:
-    st.title("SkillScope")
+    processed_offers = []
+    for offer in offers_list:
+        entreprise = offer.get('entreprise', {}) if isinstance(offer.get('entreprise'), dict) else {}
+        origine_offre = offer.get('origineOffre', {}) if isinstance(offer.get('origineOffre'), dict) else {}
+        
+        processed_offers.append({
+            'id': offer.get('id', ''),
+            'intitule': offer.get('intitule', 'Titre non précisé'),
+            'description': offer.get('description', ''),
+            'url': origine_offre.get('urlOrigine', '#'),
+            'entreprise_nom': entreprise.get('nom', 'Non précisé'),
+            'type_contrat': offer.get('typeContratLibelle', 'Non précisé')
+        })
+    return pd.DataFrame(processed_offers)
 
-st.markdown("""
-<div style='text-align: center;'>
-Un outil pour extraire et quantifier les compétences les plus demandées sur le marché.<br>
-<em>Basé sur les données de <strong>France Travail</strong>.</em>
-</div>
-""", unsafe_allow_html=True)
-st.markdown("---")
 
-_left_margin, content_col, _right_margin = st.columns([0.2, 0.6, 0.2])
-
-with content_col:
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        job_to_scrape = st.text_input("Quel métier analyser ?", placeholder="Ex: Data Engineer...", label_visibility="collapsed")
-    with col2:
-        launch_button = st.button("Lancer l'analyse", type="primary", use_container_width=True, disabled=(not job_to_scrape))
+def process_job_offers_pipeline(job_name, location_code):
+    logging.info(f"Début du pipeline pour le métier : '{job_name}'")
     
-    placeholder = st.empty()
+    df = get_job_offers(job_name)
+    
+    if df.empty:
+        logging.warning("Aucune offre d'emploi trouvée. Le pipeline s'arrête.")
+        return pd.DataFrame(), []
 
-    if launch_button:
-        for key in ['df_results', 'error_message', 'log_messages']:
-            if key in st.session_state: del st.session_state[key]
-        st.session_state['job_title'] = job_to_scrape
+    logging.info(f"{len(df)} offres d'emploi récupérées.")
+    
+    hard_skills, soft_skills, languages = load_all_skills()
+    logging.info("Chargement des bases de données de compétences terminé.")
 
-        with setup_log_capture() as log_capture_stream:
-            with placeholder.container():
-                with st.spinner(f"Analyse des offres pour **{job_to_scrape}**..."):
-                    df_results, _ = process_job_offers_pipeline(job_to_scrape, "")
+    logging.info("Compilation des patterns Regex en cours...")
+    hard_skills_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in hard_skills) + r')\b', re.IGNORECASE)
+    soft_skills_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in soft_skills) + r')\b', re.IGNORECASE)
+    languages_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in languages) + r')\b', re.IGNORECASE)
+    logging.info("Compilation terminée.")
+    
+    def extractor_wrapper(description):
+        return extract_skills(description, hard_skills_pattern, soft_skills_pattern, languages_pattern)
+        
+    df['skills_found'] = df['description'].apply(extractor_wrapper)
+    
+    df['hard_skills'] = df['skills_found'].apply(lambda x: x['hard'])
+    df['soft_skills'] = df['skills_found'].apply(lambda x: x['soft'])
+    df['languages'] = df['skills_found'].apply(lambda x: x['language'])
+    
+    total_hard_skills = df['hard_skills'].explode().nunique()
+    total_soft_skills = df['soft_skills'].explode().nunique()
+    total_languages = df['languages'].explode().nunique()
 
-            if df_results is not None and not df_results.empty:
-                df_results.rename(columns={'competences_uniques': 'tags'}, inplace=True)
-                st.session_state['df_results'] = df_results
-            else:
-                st.session_state['error_message'] = f"Aucune offre trouvée ou analysée pour '{job_to_scrape}'."
-
-            st.session_state['log_messages'] = log_capture_stream.getvalue()
-        st.rerun()
-
-    with placeholder.container():
-        if 'error_message' in st.session_state:
-            st.error(st.session_state['error_message'], icon="🚨")
-        elif 'df_results' in st.session_state:
-            df = st.session_state['df_results']
-            job_title = st.session_state.get('job_title', 'le métier analysé')
-            st.subheader(f"📊 Résultats de l'analyse pour : {job_title}", anchor=False)
-            
-            tags_exploded = df['tags'].explode().dropna()
-            
-            if not tags_exploded.empty:
-                skill_counts = tags_exploded.value_counts().reset_index()
-                skill_counts.columns = ['Compétence', 'Fréquence']
-                skill_counts.insert(0, 'Classement', range(1, len(skill_counts) + 1))
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Offres Analysées", f"{len(df)}")
-                c2.metric("Compétences Uniques", f"{len(skill_counts)}")
-                c3.metric("Top Compétence", skill_counts.iloc[0]['Compétence'])
-                st.subheader("Classement des compétences", anchor=False)
-                search_skill = st.text_input("Rechercher une compétence :", placeholder="Ex: Python...", label_visibility="collapsed")
-                if search_skill:
-                    skill_counts_display = skill_counts[skill_counts['Compétence'].str.contains(search_skill, case=False, na=False)]
-                else:
-                    skill_counts_display = skill_counts
-                st.dataframe(skill_counts_display, use_container_width=True, hide_index=True)
-            else:
-                st.warning("Aucune compétence n'a pu être extraite des offres analysées pour ce métier.")
-        else:
-            st.info("Lancez une analyse pour afficher les résultats !", icon="💡")
-
-st.markdown("---")
-with st.expander("Voir les logs d'exécution", expanded=False):
-    st.code(st.session_state.get('log_messages', "Aucun log pour le moment."), language='log')
-
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; font-family: 'Source Sans Pro', sans-serif;">
-    <p style="font-size: 0.9em;">Développé par <strong style="color: #2474c5;">Hamza Kachmir</strong></p>
-    <p style="font-size: 1.1em;"><a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="text-decoration: none; margin-right: 15px;"><strong style="color: #F9B15C;">Portfolio</strong></a><a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="text-decoration: none;"><strong style="color: #F9B15C;">LinkedIn</strong></a></p>
-</div>
-""", unsafe_allow_html=True)
+    logging.info(f"Extraction terminée :")
+    logging.info(f"-> {total_hard_skills} compétences 'Hard Skills' uniques trouvées.")
+    logging.info(f"-> {total_soft_skills} compétences 'Soft Skills' uniques trouvées.")
+    logging.info(f"-> {total_languages} compétences 'Languages' uniques trouvées.")
+    
+    df['competences_uniques'] = df.apply(lambda row: sorted(list(set(row['hard_skills'] + row['soft_skills'] + row['languages']))), axis=1)
+    
+    all_skills_list = df['competences_uniques'].explode().dropna().unique().tolist()
+    
+    df_final = df[['id', 'intitule', 'entreprise_nom', 'type_contrat', 'url', 'competences_uniques']].copy()
+    
+    logging.info(f"Pipeline terminé. {len(df_final)} offres traitées. {len(all_skills_list)} compétences uniques au total identifiées.")
+    
+    return df_final, sorted(all_skills_list)
