@@ -86,7 +86,7 @@ def process_job_offers_pipeline(job_name, location_code, progress_callback=None,
     logging.info(f"-> {total_soft_skills} compétences 'Soft Skills' uniques trouvées.")
     logging.info(f"-> {total_languages} compétences 'Languages' uniques trouvées.")
     
-    df['competences_uniques'] = df.apply(lambda row: sorted(list(set(row['hard_bills'] + row['soft_skills'] + row['languages']))), axis=1) # Typo corrected: hard_bills -> hard_skills
+    df['competences_uniques'] = df.apply(lambda row: sorted(list(set(row['hard_skills'] + row['soft_skills'] + row['languages']))), axis=1) # Typo corrected: hard_bills -> hard_skills
     
     all_skills_list = df['competences_uniques'].explode().dropna().unique().tolist()
     
