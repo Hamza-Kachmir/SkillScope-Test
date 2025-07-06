@@ -7,7 +7,6 @@ from src.france_travail_api import FranceTravailClient
 from src.skill_extractor import load_all_skills, extract_skills
 
 def get_job_offers(job_name: str, max_offers: int) -> pd.DataFrame:
-    # ... (cette fonction ne change pas)
     logger = logging.getLogger(__name__)
     try:
         client_id = st.secrets["FRANCE_TRAVAIL_CLIENT_ID"]
@@ -52,11 +51,8 @@ def process_job_offers_pipeline(job_name, location_code, progress_callback=None,
 
     logging.info(f"{len(df)} offres d'emploi récupérées.")
     
-    # On charge les compétences une seule fois
     hard_skills, soft_skills, languages = load_all_skills()
     logging.info("Chargement des bases de données de compétences terminé.")
-
-    # On supprime la compilation Regex qui était lente
     
     if progress_callback:
         progress_callback(0, "Étape 2/2 : Analyse des compétences...")
@@ -64,7 +60,6 @@ def process_job_offers_pipeline(job_name, location_code, progress_callback=None,
     results = []
     total_offers = len(df)
     for i, row in df.iterrows():
-        # On passe directement les sets de compétences à la nouvelle fonction rapide
         result = extract_skills(row['description'], hard_skills, soft_skills, languages)
         results.append(result)
         if progress_callback:
@@ -86,7 +81,23 @@ def process_job_offers_pipeline(job_name, location_code, progress_callback=None,
     logging.info(f"-> {total_soft_skills} compétences 'Soft Skills' uniques trouvées.")
     logging.info(f"-> {total_languages} compétences 'Languages' uniques trouvées.")
     
-    df['competences_uniques'] = df.apply(lambda row: sorted(list(set(row['hard_skills'] + row['soft_skills'] + row['languages']))), axis=1) # Typo corrected: hard_bills -> hard_skills
+    # --- MODIFICATION POUR PLUS DE ROBUSTESSE ---
+    # On utilise une fonction dédiée au lieu d'une lambda pour éviter les erreurs
+    def combine_skills(row):
+        # row.get('nom_colonne', []) permet de récupérer une liste vide si la colonne n'existe pas, au lieu de planter.
+        hard = row.get('hard_skills', [])
+        soft = row.get('soft_skills', [])
+        lang = row.get('languages', [])
+        
+        # Sécurité supplémentaire pour s'assurer que ce sont bien des listes
+        hard = hard if isinstance(hard, list) else []
+        soft = soft if isinstance(soft, list) else []
+        lang = lang if isinstance(lang, list) else []
+        
+        return sorted(list(set(hard + soft + lang)))
+
+    df['competences_uniques'] = df.apply(combine_skills, axis=1)
+    # --- FIN DE LA MODIFICATION ---
     
     all_skills_list = df['competences_uniques'].explode().dropna().unique().tolist()
     
