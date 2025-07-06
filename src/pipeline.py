@@ -3,9 +3,10 @@ import logging
 from typing import Callable
 import streamlit as st
 
-from src.france_travail_api import FranceTravailAPI
-from src.skill_extractor import extract_skills, load_skills_from_json
-from src.normalization import get_canonical_form
+# IMPORTS CORRIGÉS : Suppression du préfixe "src."
+from france_travail_api import FranceTravailAPI
+from skill_extractor import extract_skills, load_skills_from_json
+from normalization import get_canonical_form
 
 def search_france_travail_offers(rome_code: str, search_range: int = 30) -> pd.DataFrame:
     """
