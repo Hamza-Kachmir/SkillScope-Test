@@ -4,8 +4,6 @@ import numpy as np
 import base64
 import os
 import logging
-
-# MODIFICATION 1 : Importer la nouvelle fonction du pipeline
 from src.pipeline import process_job_offers_pipeline
 from src.log_handler import setup_log_capture
 
@@ -51,7 +49,6 @@ with content_col:
     
     placeholder = st.empty()
 
-    # MODIFICATION 2 : Adapter la logique d'appel
     if launch_button:
         for key in ['df_results', 'error_message', 'log_messages']:
             if key in st.session_state: del st.session_state[key]
@@ -60,11 +57,9 @@ with content_col:
         with setup_log_capture() as log_capture_stream:
             with placeholder.container():
                 with st.spinner(f"Analyse des offres pour **{job_to_scrape}**..."):
-                    # Appel à la nouvelle fonction unique du pipeline
                     df_results, _ = process_job_offers_pipeline(job_to_scrape, "")
 
             if df_results is not None and not df_results.empty:
-                # On renomme la colonne pour que le reste de votre code d'affichage fonctionne sans changement
                 df_results.rename(columns={'competences_uniques': 'tags'}, inplace=True)
                 st.session_state['df_results'] = df_results
             else:

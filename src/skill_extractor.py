@@ -1,6 +1,6 @@
-import re
 import json
 import os
+import re
 from unidecode import unidecode
 
 def load_all_skills(base_path='assets/skills'):
@@ -18,20 +18,12 @@ def load_all_skills(base_path='assets/skills'):
         
     return hard_skills, soft_skills, languages
 
-def extract_skills(text, hard_skills, soft_skills, languages):
+def extract_skills(text, hard_skills_pattern, soft_skills_pattern, languages_pattern):
     if not isinstance(text, str):
         return {'hard': [], 'soft': [], 'language': []}
 
     normalized_text = unidecode(text.lower())
 
-    # On construit une seule expression régulière pour chaque catégorie pour plus d'efficacité
-    # re.escape s'assure que les caractères spéciaux (comme dans "c++") sont bien traités
-    # \b est une "limite de mot", c'est la solution à votre problème
-    hard_skills_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in hard_skills) + r')\b')
-    soft_skills_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in soft_skills) + r')\b')
-    languages_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in languages) + r')\b')
-
-    # On utilise findall pour trouver toutes les correspondances en une seule fois
     found_hard = set(hard_skills_pattern.findall(normalized_text))
     found_soft = set(soft_skills_pattern.findall(normalized_text))
     found_lang = set(languages_pattern.findall(normalized_text))
