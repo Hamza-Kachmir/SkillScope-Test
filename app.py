@@ -4,8 +4,8 @@ import logging
 from typing import List, Dict
 import os
 
-# On importe seulement ui et app
-from nicegui import ui, app
+# On importe ui, app, et la nouvelle méthode 'run'
+from nicegui import ui, app, run
 
 # Importe les fonctions de ton pipeline
 from src.pipeline import search_france_travail_offers, process_offers
@@ -29,6 +29,10 @@ def display_results(container: ui.column, df: pd.DataFrame, job_title: str):
         ui.label(f"📊 Résultats pour : {job_title}").classes('text-2xl font-bold text-gray-800')
 
         tags_exploded = df['tags'].explode().dropna()
+        if tags_exploded.empty:
+            ui.warning("Aucune compétence n'a pu être extraite des offres analysées.")
+            return
+
         skill_counts = tags_exploded.value_counts().reset_index()
         skill_counts.columns = ['Compétence', 'Fréquence']
         skill_counts.insert(0, 'Classement', range(1, len(skill_counts) + 1))
@@ -73,9 +77,12 @@ async def run_analysis_logic(job_input: ui.input, results_container: ui.column, 
     
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
-    logger.addHandler(UiLogHandler(log_view))
+    log_handler = UiLogHandler(log_view)
+    log_handler.setFormatter(formatter)
+    logger.addHandler(log_handler)
 
     with results_container:
         ui.spinner(size='lg', color='primary').classes('mx-auto')
@@ -83,8 +90,8 @@ async def run_analysis_logic(job_input: ui.input, results_container: ui.column, 
         progress_bar = ui.linear_progress(0).props('color=primary')
 
     try:
-        # 2. Lancer la recherche (on utilise 'app.run_in_executor')
-        all_offers = await app.run_in_executor(search_france_travail_offers, job_title, logger)
+        # 2. Lancer la recherche (on utilise 'run.io_bound')
+        all_offers = await run.io_bound(search_france_travail_offers, job_title, logger)
         if not all_offers:
             raise ValueError(f"Aucune offre n'a été trouvée pour '{job_title}' sur France Travail.")
 
@@ -93,7 +100,7 @@ async def run_analysis_logic(job_input: ui.input, results_container: ui.column, 
         def progress_callback(value: float):
             progress_bar.set_value(value)
 
-        df_results = await app.run_in_executor(process_offers, all_offers, progress_callback)
+        df_results = await run.io_bound(process_offers, all_offers, progress_callback)
         if df_results is None or df_results.empty:
             raise ValueError("L'analyse a échoué ou aucune compétence pertinente n'a pu être extraite.")
         
@@ -129,19 +136,23 @@ def main_page():
         ui.markdown("## Analysez les compétences clés d'un métier").classes('text-3xl text-center font-light text-gray-800')
         ui.markdown("_Basé sur les données en temps réel de **France Travail** et du référentiel **ESCO**._").classes('text-center text-gray-500 mb-6')
 
-        # Barre de recherche
+        # Barre de recherche et bouton sur la même ligne
         with ui.row().classes('w-full max-w-lg items-center gap-2'):
             job_input = ui.input(placeholder="Ex: Développeur Python, Chef de projet...").props('outlined dense').classes('flex-grow')
             
-            # La zone pour les résultats et les logs est définie ici
-            results_container = ui.column().classes('w-full mt-6')
-            with ui.expansion("Voir les logs d'exécution", icon='code').classes('w-full mt-4'):
-                log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
+            # Le bouton est maintenant à côté de la barre de recherche
+            # La lambda est modifiée pour passer les éléments qui seront créés plus tard
+            launch_button = ui.button('Lancer l\'analyse').props('color=primary unelevated')
+        
+        # Les conteneurs pour les résultats et les logs sont créés en dessous
+        results_container = ui.column().classes('w-full mt-6')
+        with ui.expansion("Voir les logs d'exécution", icon='code').classes('w-full mt-4'):
+            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
 
-            # Le bouton est créé en dernier, et on utilise une lambda pour connecter les éléments
-            ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(job_input, results_container, log_view)) \
-                .props('color=primary unelevated') \
-                .bind_enabled_from(job_input, 'value', bool)
+        # On connecte le bouton à la logique maintenant que tous les éléments existent
+        launch_button.on('click', lambda: run_analysis_logic(job_input, results_container, log_view))
+        launch_button.bind_enabled_from(job_input, 'value', bool)
+
 
 # --- Point d'entrée pour lancer l'application ---
 port = int(os.environ.get('PORT', 10000))
