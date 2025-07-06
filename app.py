@@ -4,7 +4,8 @@ import logging
 from typing import List, Dict
 import os
 
-from nicegui import ui, app
+# On importe 'run_in_executor' directement
+from nicegui import ui, app, run_in_executor
 
 # Importe les fonctions de ton pipeline
 from src.pipeline import search_france_travail_offers, process_offers
@@ -60,7 +61,7 @@ def display_results(container: ui.column, df: pd.DataFrame, job_title: str):
         
         table.bind_filter_from(filter_input, 'value')
 
-async def run_analysis(job_input: ui.input, results_container: ui.column, log_view: ui.log):
+async def run_analysis_logic(job_input: ui.input, results_container: ui.column, log_view: ui.log):
     """Fonction principale qui orchestre l'analyse."""
     job_title = job_input.value
     if not job_title:
@@ -82,8 +83,8 @@ async def run_analysis(job_input: ui.input, results_container: ui.column, log_vi
         progress_bar = ui.linear_progress(0).props('color=primary')
 
     try:
-        # 2. Lancer la recherche
-        all_offers = await ui.run_in_executor(search_france_travail_offers, job_title, logger)
+        # 2. Lancer la recherche (on utilise 'run_in_executor' directement)
+        all_offers = await run_in_executor(search_france_travail_offers, job_title, logger)
         if not all_offers:
             raise ValueError(f"Aucune offre n'a été trouvée pour '{job_title}' sur France Travail.")
 
@@ -92,7 +93,7 @@ async def run_analysis(job_input: ui.input, results_container: ui.column, log_vi
         def progress_callback(value: float):
             progress_bar.set_value(value)
 
-        df_results = await ui.run_in_executor(process_offers, all_offers, progress_callback)
+        df_results = await run_in_executor(process_offers, all_offers, progress_callback)
         if df_results is None or df_results.empty:
             raise ValueError("L'analyse a échoué ou aucune compétence pertinente n'a pu être extraite.")
         
@@ -138,7 +139,7 @@ def main_page():
                 log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
 
             # Le bouton est créé en dernier, et on utilise une lambda pour connecter les éléments
-            ui.button('Lancer l\'analyse', on_click=lambda: run_analysis(job_input, results_container, log_view)) \
+            ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(job_input, results_container, log_view)) \
                 .props('color=primary unelevated') \
                 .bind_enabled_from(job_input, 'value', bool)
 
