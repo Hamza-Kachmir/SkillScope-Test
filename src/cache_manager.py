@@ -23,57 +23,46 @@ def initialize_redis():
         logging.error(f"Impossible de se connecter à Redis : {e}")
         redis_client = None
 
-def get_cached_results(job_title: str) -> dict | None:
-    if redis_client is None:
-        return None
-            
-    normalized_title = job_title.lower().strip()
-    
+def get_cached_results(cache_key: str) -> dict | None:
+    if redis_client is None: return None
     try:
-        cached_json = redis_client.get(normalized_title)
+        cached_json = redis_client.get(cache_key)
         if cached_json:
-            logging.info(f"Cache HIT for '{normalized_title}'.")
+            logging.info(f"Cache HIT for '{cache_key}'.")
             return json.loads(cached_json)
-        logging.info(f"Cache MISS for '{normalized_title}'.")
+        logging.info(f"Cache MISS for '{cache_key}'.")
         return None
     except Exception as e:
-        logging.error(f"Erreur lors de la lecture du cache Redis : {e}")
+        logging.error(f"Erreur lors de la lecture du cache Redis pour la clé '{cache_key}': {e}")
         return None
 
-def add_to_cache(job_title: str, results: dict):
-    if redis_client is None:
-        return
-            
-    normalized_title = job_title.lower().strip()
-    
+def add_to_cache(cache_key: str, results: dict):
+    if redis_client is None: return
     try:
         value_to_store = json.dumps(results, ensure_ascii=False)
-        redis_client.setex(normalized_title, 2592000, value_to_store) # Expire après 30 jours
-        logging.info(f"Cache WRITE for '{normalized_title}'.")
+        redis_client.setex(cache_key, 2592000, value_to_store)
+        logging.info(f"Cache WRITE for '{cache_key}'.")
     except Exception as e:
-        logging.error(f"Erreur lors de l'écriture du cache Redis : {e}")
+        logging.error(f"Erreur lors de l'écriture du cache Redis pour la clé '{cache_key}': {e}")
 
-def delete_from_cache(job_title: str):
-    if redis_client is None:
-        return
-    
-    normalized_title = job_title.lower().strip()
+def delete_from_cache(cache_key: str):
+    if redis_client is None: return
     try:
-        redis_client.delete(normalized_title)
-        logging.info(f"CACHE DELETE for entry: '{normalized_title}'.")
+        redis_client.delete(cache_key)
+        logging.info(f"CACHE DELETE for entry: '{cache_key}'.")
     except Exception as e:
-        logging.error(f"Erreur lors de la suppression de la clé '{normalized_title}' du cache Redis : {e}")
+        logging.error(f"Erreur lors de la suppression de la clé '{cache_key}' du cache Redis : {e}")
 
 def flush_all_cache():
     if redis_client is None:
-        return
-        
+        logging.error("Impossible de vider le cache: client Redis non initialisé.")
+        return False
     try:
         redis_client.flushall()
         logging.info("CACHE FLUSH: Toutes les données ont été supprimées.")
-        ui.notify('Le cache a été entièrement vidé !', color='positive')
+        return True
     except Exception as e:
         logging.error(f"Erreur lors du vidage complet du cache Redis : {e}")
-        ui.notify('Erreur lors du vidage du cache.', color='negative')
+        return False
 
 initialize_redis()

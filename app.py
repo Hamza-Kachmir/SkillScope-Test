@@ -10,6 +10,7 @@ from pipeline import get_skills_for_job
 from src.cache_manager import delete_from_cache, flush_all_cache
 
 job_input = None
+offers_select = None
 results_container = None
 log_view = None
 
@@ -22,7 +23,7 @@ class UiLogHandler(logging.Handler):
         msg = self.format(record)
         self.log_element.push(msg)
 
-def display_results(container: ui.column, results_dict: dict, job_title: str):
+def display_results(container: ui.column, results_dict: dict, job_title: str, num_offers: int):
     container.clear()
     
     skills_data = results_dict.get('skills', [])
@@ -32,7 +33,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             with ui.card().classes('w-full bg-yellow-100 p-4'):
                 with ui.row().classes('items-center'):
                     ui.icon('warning', color='warning')
-                    ui.label("Aucune compétence pertinente n'a pu être extraite pour ce métier.").classes('text-yellow-800 ml-2')
+                    ui.label("Aucune compétence pertinente n'a pu être extraite.").classes('text-yellow-800 ml-2')
         return
 
     df_skills = pd.DataFrame(skills_data)
@@ -41,10 +42,12 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     
     with container:
         with ui.row().classes('w-full items-center justify-between'):
-            ui.label(f"📊 Résultats pour : {job_title}").classes('text-2xl font-bold text-gray-800')
-            refresh_button = ui.button('Rafraîchir les données', icon='refresh', on_click=lambda: refresh_analysis(job_title))
+            with ui.row(wrap=False).classes('items-center'):
+                ui.label(f"📊 Résultats pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
+                ui.label(f"({num_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
+            refresh_button = ui.button('Rafraîchir', icon='refresh', on_click=lambda: refresh_analysis(job_title, num_offers))
             refresh_button.props('color=grey-6 flat dense')
-            with ui.tooltip('Supprime les données du cache et relance une nouvelle analyse complète.'):
+            with ui.tooltip('Supprime les données du cache pour cette recherche et relance une nouvelle analyse.'):
                 ui.icon('info', color='grey')
 
         with ui.row().classes('w-full justify-around mt-4 gap-4'):
@@ -74,14 +77,16 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         table.bind_filter_from(filter_input, 'value')
 
 async def run_analysis_logic(force_refresh: bool = False):
-    if not job_input or not job_input.value:
-        ui.notify("Veuillez entrer un métier.", color='warning')
+    if not all([job_input, offers_select, job_input.value, offers_select.value]):
+        ui.notify("Veuillez entrer un métier et sélectionner un volume.", color='warning')
         return
 
     job_title = job_input.value
+    num_offers = offers_select.value
+    cache_key = f"{job_title.lower().strip()}@{num_offers}"
     
     if force_refresh:
-        await run.io_bound(delete_from_cache, job_title)
+        await run.io_bound(delete_from_cache, cache_key)
 
     results_container.clear()
     log_view.clear()
@@ -91,21 +96,21 @@ async def run_analysis_logic(force_refresh: bool = False):
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     
     if not any(isinstance(h, UiLogHandler) for h in logger.handlers):
+        logger.handlers.clear()
         log_handler = UiLogHandler(log_view)
         log_handler.setFormatter(formatter)
         logger.addHandler(log_handler)
 
     with results_container:
         ui.spinner(size='lg', color='primary').classes('mx-auto')
-        ui.label("Analyse en cours... (peut prendre jusqu'à 30 secondes)").classes('mx-auto text-gray-600')
+        ui.label(f"Analyse de {num_offers} offres en cours...").classes('mx-auto text-gray-600')
 
     try:
-        results = await get_skills_for_job(job_title, logger)
-        
+        results = await get_skills_for_job(job_title, num_offers, logger)
         if results is None:
-            raise ValueError(f"Impossible de récupérer les compétences pour '{job_title}'.")
+            raise ValueError(f"Impossible de récupérer les compétences.")
         
-        display_results(results_container, results, job_title)
+        display_results(results_container, results, job_title, num_offers)
 
     except Exception as e:
         logger.error(f"Une erreur est survenue : {e}")
@@ -116,13 +121,22 @@ async def run_analysis_logic(force_refresh: bool = False):
                     ui.icon('report_problem', color='negative')
                     ui.label(str(e)).classes('text-negative font-bold ml-2')
 
-async def refresh_analysis(job_title_to_refresh: str):
+async def refresh_analysis(job_title_to_refresh: str, num_offers_to_refresh: int):
     job_input.value = job_title_to_refresh
+    offers_select.value = num_offers_to_refresh
     await run_analysis_logic(force_refresh=True)
+
+async def handle_flush_cache():
+    success = await run.io_bound(flush_all_cache)
+    if success:
+        ui.notify('Le cache a été entièrement vidé !', color='positive')
+        results_container.clear()
+    else:
+        ui.notify('Erreur lors du vidage du cache.', color='negative')
 
 @ui.page('/')
 def main_page():
-    global job_input, results_container, log_view
+    global job_input, offers_select, results_container, log_view
     
     app.add_static_files('/assets', 'assets')
     ui.query('body').style('background-color: #f5f5f5;')
@@ -138,17 +152,24 @@ def main_page():
         ui.markdown("## Analysez les compétences clés d'un métier").classes('text-3xl text-center font-light text-gray-800')
         ui.markdown("_Basé sur les données de **France Travail** et l'analyse de **Google Gemini**._").classes('text-center text-gray-500 mb-6')
 
-        with ui.row().classes('w-full max-w-lg items-center gap-2'):
-            job_input = ui.input(placeholder="Ex: Développeur Python, Chef de projet...").props('outlined dense').classes('flex-grow')
-            launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary unelevated')
+        with ui.row().classes('w-full max-w-lg items-stretch gap-2'):
+            job_input = ui.input(placeholder="Ex: Développeur Python...").props('outlined dense').classes('flex-grow')
+            offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100, label='Volume').props('outlined dense')
+        
+        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary unelevated').classes('w-full max-w-lg mt-2')
         
         results_container = ui.column().classes('w-full mt-6')
         
         with ui.expansion("Voir les logs et Gérer le Cache", icon='code').classes('w-full mt-4'):
             log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
-            ui.button('Vider tout le cache', on_click=lambda: run.io_bound(flush_all_cache), color='negative').props('outline size=sm').classes('m-2')
+            ui.button('Vider tout le cache', on_click=handle_flush_cache, color='negative').props('outline size=sm').classes('m-2')
 
-        launch_button.bind_enabled_from(job_input, 'value', bool)
+    # Bind the button's enabled state to both inputs
+    def check_inputs():
+        return bool(job_input.value and offers_select.value)
+    
+    # We can't directly bind from two sources, so we use a timer to check.
+    ui.timer(0.1, lambda: launch_button.set_enabled(check_inputs()))
 
 port = int(os.environ.get('PORT', 8080))
-ui.run(host='0.0.0.0', port=port, title='SkillScope v3')
+ui.run(host='0.0.0.0', port=port, title='SkillScope v4')
