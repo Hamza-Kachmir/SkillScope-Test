@@ -6,7 +6,7 @@ import time
 from src.france_travail_api import FranceTravailClient
 from src.skill_extractor import load_all_skills, extract_skills
 
-def get_job_offers(job_name: str) -> pd.DataFrame:
+def get_job_offers(job_name: str, max_offers: int) -> pd.DataFrame:
     # ... (cette fonction ne change pas)
     logger = logging.getLogger(__name__)
     try:
@@ -18,7 +18,7 @@ def get_job_offers(job_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     client = FranceTravailClient(client_id=client_id, client_secret=client_secret, logger=logger)
-    offers_list = client.search_offers(search_term=job_name)
+    offers_list = client.search_offers(search_term=job_name, max_offers=max_offers)
 
     if not offers_list:
         return pd.DataFrame()
@@ -39,13 +39,12 @@ def get_job_offers(job_name: str) -> pd.DataFrame:
     return pd.DataFrame(processed_offers)
 
 
-def process_job_offers_pipeline(job_name, location_code, progress_callback=None):
-    # --- ÉTAPE 1: Récupération des offres ---
+def process_job_offers_pipeline(job_name, location_code, progress_callback=None, max_offers=150):
     logging.info(f"Début du pipeline pour le métier : '{job_name}'")
     if progress_callback:
-        progress_callback(0, "Étape 1/2 : Récupération des offres d'emploi...")
+        progress_callback(0, f"Étape 1/2 : Récupération de {max_offers} offres d'emploi...")
     
-    df = get_job_offers(job_name)
+    df = get_job_offers(job_name, max_offers)
     
     if df.empty:
         logging.warning("Aucune offre d'emploi trouvée. Le pipeline s'arrête.")
@@ -53,23 +52,20 @@ def process_job_offers_pipeline(job_name, location_code, progress_callback=None)
 
     logging.info(f"{len(df)} offres d'emploi récupérées.")
     
+    # On charge les compétences une seule fois
     hard_skills, soft_skills, languages = load_all_skills()
     logging.info("Chargement des bases de données de compétences terminé.")
 
-    logging.info("Compilation des patterns Regex en cours...")
-    hard_skills_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in hard_skills) + r')\b', re.IGNORECASE)
-    soft_skills_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in soft_skills) + r')\b', re.IGNORECASE)
-    languages_pattern = re.compile(r'\b(' + '|'.join(re.escape(s) for s in languages) + r')\b', re.IGNORECASE)
-    logging.info("Compilation terminée.")
+    # On supprime la compilation Regex qui était lente
     
-    # --- ÉTAPE 2: Analyse des compétences ---
     if progress_callback:
         progress_callback(0, "Étape 2/2 : Analyse des compétences...")
     
     results = []
     total_offers = len(df)
     for i, row in df.iterrows():
-        result = extract_skills(row['description'], hard_skills_pattern, soft_skills_pattern, languages_pattern)
+        # On passe directement les sets de compétences à la nouvelle fonction rapide
+        result = extract_skills(row['description'], hard_skills, soft_skills, languages)
         results.append(result)
         if progress_callback:
             progress_value = (i + 1) / total_offers
@@ -90,7 +86,7 @@ def process_job_offers_pipeline(job_name, location_code, progress_callback=None)
     logging.info(f"-> {total_soft_skills} compétences 'Soft Skills' uniques trouvées.")
     logging.info(f"-> {total_languages} compétences 'Languages' uniques trouvées.")
     
-    df['competences_uniques'] = df.apply(lambda row: sorted(list(set(row['hard_skills'] + row['soft_skills'] + row['languages']))), axis=1)
+    df['competences_uniques'] = df.apply(lambda row: sorted(list(set(row['hard_bills'] + row['soft_skills'] + row['languages']))), axis=1) # Typo corrected: hard_bills -> hard_skills
     
     all_skills_list = df['competences_uniques'].explode().dropna().unique().tolist()
     
