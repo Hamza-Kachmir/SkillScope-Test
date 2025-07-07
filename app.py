@@ -142,6 +142,28 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 pagination={'rowsPerPage': 10}
             ).props('flat bordered').classes('w-full')
 
+            with table.add_slot('pagination', 'props'):
+                with ui.row().classes('w-full items-center justify-center gap-2'):
+                    ui.button(icon='first_page', on_click=props.firstPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isFirstPage', backward=lambda v: not v)
+
+                    ui.button(icon='chevron_left', on_click=props.prevPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isFirstPage', backward=lambda v: not v)
+
+                    ui.label().bind_text_from(
+                        props, 'pagination',
+                        lambda p: f"{p['page']} / {p['pagesNumber']}"
+                    ).classes('font-mono')
+
+                    ui.button(icon='chevron_right', on_click=props.nextPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isLastPage', backward=lambda v: not v)
+
+                    ui.button(icon='last_page', on_click=props.lastPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isLastPage', backward=lambda v: not v)
             
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
