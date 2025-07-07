@@ -155,8 +155,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                     .bind_enabled_from(table, 'pagination', backward=lambda p: p['page'] > 1)
 
                 ui.label().bind_text_from(
-                    table, 'pagination',
-                    lambda p: f"{p['page']} / {p['pagesNumber']}"
+                    props, 'pagination',
+                    lambda p: f"{p.page} / {p.pagesNumber}"
                 ).classes('font-mono')
 
                 ui.button(icon='chevron_right', on_click=lambda: table.set_pagination({'page': table.pagination['page'] + 1})) \
