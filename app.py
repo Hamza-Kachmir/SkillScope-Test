@@ -77,6 +77,12 @@ class UiLogHandler(logging.Handler):
         except Exception as e:
             print(f"Error in UiLogHandler: {e}")
 
+def format_skill_name(skill: str) -> str:
+    known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
+    if skill.lower() in known_acronyms:
+        return skill.upper()
+    return skill.capitalize()
+
 def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
     logger.info("Affichage des résultats : Début de la fonction display_results.")
