@@ -32,19 +32,16 @@ def download_excel_endpoint():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         # Créer un DataFrame pour les informations d'en-tête
-        header_df = pd.DataFrame([
+        header_info = pd.DataFrame([
             ['Métier Analysé:', job_title],
             ['Offres Analysées:', actual_offers_count],
-            [], # Ligne vide pour la séparation
-            ['Classement', 'Compétence', 'Fréquence'] # En-têtes du tableau de compétences
+            [] # Ligne vide pour la séparation visuelle
         ])
+        header_info.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0)
         
-        # Écrire les informations d'en-tête
-        header_df.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0, startcol=0)
-        
-        # Écrire le DataFrame des compétences après les informations d'en-tête
-        # Nous commençons à la ligne 4 (index 3) car nous avons 4 lignes d'en-tête (y compris la ligne vide et les titres du tableau)
-        df.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=4, startcol=0)
+        # Écrire le DataFrame des compétences avec ses propres en-têtes
+        # startrow=3 pour laisser de la place pour les 3 lignes d'en-tête ci-dessus
+        df.to_excel(writer, index=False, sheet_name='Resultats', startrow=3)
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
@@ -65,7 +62,8 @@ def download_csv_endpoint():
         "" # Ligne vide pour la séparation
     ]
     
-    csv_data = "\n".join(header_lines + [df.to_csv(index=False)]) # Concaténer les en-têtes avec le CSV du DataFrame
+    # Concaténer les lignes d'en-tête avec le contenu du DataFrame formaté en CSV
+    csv_data = "\n".join(header_lines) + "\n" + df.to_csv(index=False)
     csv_data_bytes = csv_data.encode('utf-8')
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
@@ -84,13 +82,13 @@ class UiLogHandler(logging.Handler):
     def __init__(self, log_element: ui.log, log_messages_list: list):
         super().__init__()
         self.log_element = log_element
-        self.log_messages_list = log_messages_list # Référence à la liste globale des messages
+        self.log_messages_list = log_messages_list
         self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
     def emit(self, record):
         try:
             msg = self.format(record)
-            self.log_messages_list.append(msg) # Ajouter le message à la liste
+            self.log_messages_list.append(msg)
             self.log_element.push(msg)
         except Exception as e:
             print(f"Error in UiLogHandler: {e}")
@@ -122,8 +120,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     df = pd.DataFrame(formatted_skills)
     try:
         app.latest_df = df
-        app.latest_job_title = job_title # Stocker le métier
-        app.latest_actual_offers_count = actual_offers # Stocker le nombre d'offres
+        app.latest_job_title = job_title
+        app.latest_actual_offers_count = actual_offers
         logger.info(f"✅ Résultats enregistrés : {len(df)} lignes dans latest_df.")
     except Exception as e:
         logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
@@ -149,16 +147,19 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
 
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
-            table = ui.table(
-                columns=[
-                    {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
-                    {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
-                    {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
-                ],
-                rows=formatted_skills, row_key='competence'
-            ).props('flat bordered').classes('w-full')
-            table.props('pagination={"rowsPerPage": 10}') # Cette ligne assure la pagination
-            table.bind_filter_from(filter_input, 'value')
+            
+            # Nouveau conteneur pour rendre le tableau scrollable verticalement
+            with ui.card().classes('w-full').style('max-height: 400px; overflow-y: auto;'): #
+                table = ui.table(
+                    columns=[
+                        {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
+                        {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
+                        {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
+                    ],
+                    rows=formatted_skills, row_key='competence'
+                ).props('flat bordered').classes('w-full')
+                table.props('pagination={"rowsPerPage": 10}') # Cette ligne assure la pagination
+                table.bind_filter_from(filter_input, 'value')
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
 
