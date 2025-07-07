@@ -21,27 +21,26 @@ log_view = None
 
 @app.get('/download/excel')
 def download_excel_endpoint():
-    df = app.storage.client.get('latest_df')
+    df = getattr(app, 'latest_df', None)
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
-    
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Resultats')
-    
+
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
 @app.get('/download/csv')
 def download_csv_endpoint():
-    df = app.storage.client.get('latest_df')
+    df = getattr(app, 'latest_df', None)
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
-        
+
     csv_data = df.to_csv(index=False).encode('utf-8')
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
     return Response(content=csv_data, media_type='text/csv', headers=headers)
-
 
 class UiLogHandler(logging.Handler):
     def __init__(self, log_element: ui.log):
