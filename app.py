@@ -73,7 +73,7 @@ def display_results(container: ui.column, results_dict: dict):
         
         with ui.column().classes('w-full gap-2'):
             # FIX: Placeholder du filtre amélioré
-            filter_input = ui.input(placeholder="Filtrer les compétences... (ex: Python)").props('outlined dense').classes('w-full')
+            filter_input = ui.input(placeholder="Chercher un métier").props('outlined dense').classes('w-full')
             
             # FIX: Nouvelle tentative pour le scroll via les propriétés natives du tableau
             table = ui.table(
@@ -146,7 +146,7 @@ def main_page():
             ui.html("<i>Actuellement basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
         with ui.row().classes('w-full max-w-lg items-stretch gap-2 flex-wrap sm:flex-nowrap'):
-            job_input = ui.input(placeholder="Ex: Ingénieur Data...").props('outlined clearable').classes('w-full sm:w-2/3')
+            job_input = ui.input(placeholder="Chercher une compétence").props('outlined clearable').classes('w-full sm:w-2/3')
             job_input.style('font-size: 16px;')
             
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('w-full sm:w-1/3')
