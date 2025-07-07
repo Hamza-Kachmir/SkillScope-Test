@@ -1,4 +1,4 @@
-# FICHIER : app.py (Version finale avec corrections de stabilité et de design mobile)
+# FICHIER : app.py (Version finale avec corrections de bugs et de design)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -14,17 +14,23 @@ from src.cache_manager import delete_from_cache, flush_all_cache
 # Variables globales
 job_input = None
 offers_select = None
+launch_button = None
 results_container = None
 log_view = None
 
+# FIX: Correction du handler de logs pour qu'il soit fiable
 class UiLogHandler(logging.Handler):
     def __init__(self, log_element: ui.log):
         super().__init__()
         self.log_element = log_element
+        self.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
 
     def emit(self, record):
-        msg = self.format(record)
-        self.log_element.push(msg)
+        try:
+            msg = self.format(record)
+            self.log_element.push(msg)
+        except Exception as e:
+            print(f"Error in UiLogHandler: {e}")
 
 def format_skill_name(skill: str) -> str:
     known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
@@ -32,7 +38,7 @@ def format_skill_name(skill: str) -> str:
         return skill.upper()
     return skill.capitalize()
 
-def display_results(container: ui.column, results_dict: dict, job_title: str):
+def display_results(container: ui.column, results_dict: dict):
     container.clear()
     
     skills_data = results_dict.get('skills', [])
@@ -51,8 +57,9 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     df_skills.insert(0, 'Classement', range(1, len(df_skills) + 1))
     
     with container:
+        # FIX: Titre simplifié
         with ui.row().classes('w-full items-center'):
-            ui.label(f"Synthèse des compétences pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
+            ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
@@ -68,8 +75,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Filtrer les compétences...").props('outlined dense').classes('w-full')
             
-            # FIX: Conteneur du tableau avec une classe pour le dégradé visuel
-            with ui.column().classes('w-full relative').style('max-height: 50vh; overflow-y: auto;'):
+            with ui.column().classes('w-full styled-scrollbar').style('max-height: 50vh; overflow-y: auto;'):
                 table = ui.table(
                     columns=[
                         {'name': 'Classement', 'label': '#', 'field': 'Classement', 'align': 'left', 'sortable': False},
@@ -79,71 +85,62 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                     rows=df_skills.to_dict('records'),
                     row_key='Compétence'
                 ).props('flat bordered').classes('w-full')
-                
-                # FIX: Indice visuel de scroll (dégradé)
-                ui.html('''
-                    <div style="
-                        position: absolute;
-                        bottom: 0;
-                        left: 0;
-                        right: 0;
-                        height: 40px;
-                        background: linear-gradient(to bottom, transparent, #f8fafc);
-                        pointer-events: none;">
-                    </div>
-                ''')
 
             table.props('pagination={"rowsPerPage": 10}')
             table.bind_filter_from(filter_input, 'value')
 
-async def trigger_analysis(force_refresh: bool = False):
-    """Fonction intermédiaire pour lancer l'analyse via un timer."""
-    # Le timer découple l'action de l'utilisateur de l'exécution, ce qui peut empêcher les bugs d'état.
-    ui.timer(0.1, lambda: run_analysis_logic(force_refresh), once=True)
-
 async def run_analysis_logic(force_refresh: bool = False):
-    ui.run_javascript('document.activeElement.blur()')
+    global launch_button, job_input
+    
+    if not job_input.value: return
 
-    if not all([job_input, offers_select, job_input.value, offers_select.value]): return
-    job_title = job_input.value
-    num_offers = offers_select.value
-    results_container.clear()
-    log_view.clear()
-    logger = logging.getLogger()
-    # ... (le reste de la logique est inchangé)
-    logger.setLevel(logging.INFO)
-    if not any(isinstance(h, UiLogHandler) for h in logger.handlers):
-        logger.handlers.clear()
-        log_handler = UiLogHandler(log_view)
-        log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-        logger.addHandler(log_handler)
-    with results_container:
-        with ui.card().classes('w-full p-4 items-center'):
-            ui.spinner(size='lg', color='primary')
-            ui.label(f"Analyse en cours...").classes('text-gray-600 mt-2')
+    # FIX: Désactive les contrôles pour éviter les bugs
+    launch_button.disable()
+    job_input.disable()
+    ui.run_javascript('document.activeElement.blur()')
+    
     try:
-        results = await get_skills_for_job(job_title, num_offers, logger)
+        results_container.clear()
+        with results_container:
+            with ui.card().classes('w-full p-4 items-center'):
+                ui.spinner(size='lg', color='primary')
+                ui.label(f"Analyse en cours...").classes('text-gray-600 mt-2')
+
+        logger = logging.getLogger()
+        results = await get_skills_for_job(job_input.value, offers_select.value, logger)
+        
         if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
-        display_results(results_container, results, job_title)
+        display_results(results_container)
+        
     except Exception as e:
-        logger.error(f"Une erreur est survenue : {e}")
+        logging.getLogger().error(f"Une erreur est survenue : {e}")
         results_container.clear()
         with results_container: ui.label(f"Erreur : {e}").classes('text-negative')
+        
+    finally:
+        # FIX: Réactive les contrôles à la fin de l'analyse
+        launch_button.enable()
+        job_input.enable()
 
-async def handle_flush_cache():
-    # ... (code inchangé)
-    success = await run.io_bound(flush_all_cache)
-    if success: ui.notify('Le cache a été vidé.', color='positive'); results_container.clear()
-    else: ui.notify('Erreur lors du vidage du cache.', color='negative')
 
 @ui.page('/')
 def main_page():
-    global job_input, offers_select, results_container, log_view
+    global job_input, offers_select, launch_button, results_container, log_view
     
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     
-    # FIX: CSS pour forcer le retour à la ligne dans les en-têtes de tableau
+    # FIX: CSS plus robuste pour la scrollbar et les en-têtes de tableau
     ui.add_css('''
+        .styled-scrollbar::-webkit-scrollbar {
+            -webkit-appearance: none;
+            width: 12px;
+            background-color: #f5f5f5;
+        }
+        .styled-scrollbar::-webkit-scrollbar-thumb {
+            border-radius: 6px;
+            background-color: #cccccc;
+            border: 2px solid #f5f5f5;
+        }
         th {
             white-space: normal !important;
         }
@@ -162,26 +159,36 @@ def main_page():
 
         with ui.row().classes('w-full max-w-lg items-stretch gap-2 flex-wrap sm:flex-nowrap'):
             job_input = ui.input(placeholder="Ex: Ingénieur Data...").props('outlined clearable').classes('w-full sm:w-2/3')
+            # FIX: Ajout du style pour empêcher le zoom sur iPhone
+            job_input.style('font-size: 16px;')
+            
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('w-full sm:w-1/3')
         
-        # FIX: Appel à la fonction intermédiaire pour plus de stabilité
-        job_input.on('keydown.enter', trigger_analysis)
-        launch_button = ui.button('Lancer l\'analyse', on_click=trigger_analysis).props('color=primary size=lg').classes('w-full max-w-lg')
+        job_input.on('keydown.enter', lambda: run_analysis_logic(force_refresh=False))
+        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary size=lg').classes('w-full max-w-lg')
         
         results_container = ui.column().classes('w-full mt-6')
         
-        with ui.expansion("Logs et gestion du cache", icon='o_code').classes('w-full mt-8 bg-gray-50 rounded-lg'):
-            # ... (code inchangé)
-            with ui.row().classes('w-full items-center justify-between p-2'):
-                ui.label("Activité du processus").classes('text-gray-600')
-                ui.button('Vider le cache', on_click=handle_flush_cache, color='red').props('flat dense')
-            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs rounded-b-lg')
+        with ui.expansion("Voir les logs", icon='o_code').classes('w-full mt-8 bg-gray-50 rounded-lg'):
+            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
+            # FIX: Initialisation fiable du logger
+            handler = UiLogHandler(log_view)
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+            logger.handlers.clear()
+            logger.addHandler(handler)
 
+        # FIX: Footer stylisé comme demandé avec du HTML
         with ui.column().classes('w-full items-center mt-12 pt-6 border-t'):
-            ui.label("Développé par Hamza Kachmir").classes('text-gray-500 text-sm')
-            with ui.row():
-                ui.link('Portfolio', 'https://portfolio-hamza-kachmir.vercel.app/', new_tab=True).classes('text-gray-500 hover:text-blue-700').style('text-decoration: none;')
-                ui.link('LinkedIn', 'https://www.linkedin.com/in/hamza-kachmir/', new_tab=True).classes('ml-4 text-gray-500 hover:text-blue-700').style('text-decoration: none;')
+            ui.html(f'''
+                <p style="margin: 0; font-size: 0.875rem; color: #6b7280;">
+                    <b style="color: black;">Développé par</b>
+                    <span style="color: #f9b15c; font-weight: bold;"> Hamza Kachmir</span>
+                </p>
+            ''')
+            with ui.row().classes('gap-4 mt-2'):
+                ui.html(f'<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
+                ui.html(f'<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
 
     launch_button.bind_enabled_from(job_input, 'value', backward=lambda v: bool(v))
 
