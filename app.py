@@ -21,7 +21,10 @@ log_view = None
 
 @app.get('/download/excel')
 def download_excel_endpoint():
-    df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
+    # Explicitly manage the slot context for NiceGUI storage access
+    with app.get_slot_stack()[0]:
+        df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
+    
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
 
@@ -34,7 +37,10 @@ def download_excel_endpoint():
 
 @app.get('/download/csv')
 def download_csv_endpoint():
-    df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
+    # Explicitly manage the slot context for NiceGUI storage access
+    with app.get_slot_stack()[0]:
+        df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
+        
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
         
@@ -202,6 +208,10 @@ def main_page():
                 ui.button('Vider tout le cache',
                           on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
                           color='red-6', icon='o_delete_forever').classes('mt-2')
+                
+                # New button to copy logs to clipboard
+                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText({log_view.text.replace("`", "`")})'), icon='o_content_copy').classes('mt-2')
+
 
             handler = UiLogHandler(log_view)
             logger = logging.getLogger()
