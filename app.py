@@ -1,4 +1,4 @@
-# FICHIER : app.py (Version finale avec layout stable et logs détaillés)
+# FICHIER : app.py (Version finale avec layout stabilisé et logs de débogage)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -33,18 +33,18 @@ def format_skill_name(skill: str) -> str:
     return skill.capitalize()
 
 def display_results(container: ui.column, results_dict: dict):
+    logger = logging.getLogger()
+    logger.info("Affichage des résultats : Début de la fonction display_results.")
     container.clear()
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
     actual_offers = results_dict.get('actual_offers_count', 0)
-    if not skills_data: return
+    if not skills_data:
+        logger.warning("Affichage des résultats : Aucune donnée de compétence à afficher.")
+        return
 
-    formatted_skills = []
-    for i, item in enumerate(skills_data):
-        formatted_skills.append({
-            'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']
-        })
-
+    formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
+    
     with container:
         with ui.row().classes('w-full items-center'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
@@ -57,9 +57,7 @@ def display_results(container: ui.column, results_dict: dict):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
         
-        # FIX: Titre simplifié
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
-        
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
             table = ui.table(
@@ -68,11 +66,11 @@ def display_results(container: ui.column, results_dict: dict):
                     {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
                     {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
                 ],
-                rows=formatted_skills,
-                row_key='competence'
+                rows=formatted_skills, row_key='competence'
             ).props('flat bordered').classes('w-full')
             table.props('pagination={"rowsPerPage": 10}')
             table.bind_filter_from(filter_input, 'value')
+    logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
 async def run_analysis_logic(force_refresh: bool = False):
     global launch_button, job_input
@@ -83,13 +81,13 @@ async def run_analysis_logic(force_refresh: bool = False):
         logger.warning("Analyse annulée : aucun métier n'a été entré.")
         return
 
-    logger.info("Étape 1 : Désactivation des contrôles de l'interface.")
+    logger.info("1. Désactivation des contrôles de l'interface.")
     launch_button.disable()
     job_input.disable()
     ui.run_javascript('document.activeElement.blur()')
     
     try:
-        logger.info("Étape 2 : Nettoyage de la zone de résultats précédente.")
+        logger.info("2. Nettoyage de la zone de résultats précédente.")
         results_container.clear()
         with results_container:
             with ui.card().classes('w-full p-4 items-center'):
@@ -98,17 +96,18 @@ async def run_analysis_logic(force_refresh: bool = False):
 
         job_value = job_input.value
         offers_value = offers_select.value
-        logger.info(f"Étape 3 : Appel du pipeline principal pour '{job_value}' avec {offers_value} offres.")
+        logger.info(f"3. PRÉ-APPEL au pipeline pour '{job_value}' avec {offers_value} offres.")
         
         results = await get_skills_for_job(job_value, offers_value, logger)
         
+        logger.info("4. POST-APPEL au pipeline.")
         if results is None:
             logger.error("Le pipeline n'a retourné aucun résultat (None).")
             raise ValueError("Aucune offre ou compétence trouvée.")
         
-        logger.info(f"Étape 4 : Le pipeline a retourné {len(results.get('skills', []))} compétences. Affichage des résultats.")
+        logger.info(f"5. Le pipeline a retourné {len(results.get('skills', []))} compétences. Préparation de l'affichage.")
         display_results(results_container, results)
-        logger.info("Étape 5 : Affichage des résultats terminé.")
+        logger.info("6. Affichage des résultats terminé.")
         
     except Exception as e:
         logger.critical(f"ERREUR CRITIQUE dans run_analysis_logic : {e}")
@@ -116,7 +115,7 @@ async def run_analysis_logic(force_refresh: bool = False):
         with results_container: ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
         
     finally:
-        logger.info("Étape 6 (Finally) : Réactivation des contrôles de l'interface.")
+        logger.info("7. (Finally) : Réactivation des contrôles de l'interface.")
         launch_button.enable()
         job_input.enable()
         logger.info("--- FIN DU PROCESSUS D'ANALYSE ---")
@@ -139,13 +138,13 @@ def main_page():
         with ui.row():
             ui.html("<i>Actuellement basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
-        # FIX: Layout de recherche stabilisé avec une largeur minimale pour le sélecteur
-        with ui.row().classes('w-full max-w-lg items-stretch gap-2 flex-nowrap'):
-            job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('flex-grow')
+        # FIX: Layout stabilisé avec des proportions fixes
+        with ui.row().classes('w-full max-w-lg items-stretch gap-2 no-wrap'):
+            job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-2/3')
             job_input.style('font-size: 16px;')
             
-            offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined dense')
-            offers_select.style('font-size: 16px; min-width: 120px;') # Largeur minimale pour éviter les sauts
+            offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined dense').classes('w-1/3')
+            offers_select.style('font-size: 16px;')
         
         launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary id="launch-button"').classes('w-full max-w-md')
         job_input.on('keydown.enter', lambda: ui.run_javascript('document.getElementById("launch-button").click()'))
