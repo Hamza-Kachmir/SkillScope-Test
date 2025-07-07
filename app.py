@@ -139,33 +139,31 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ],
                 rows=formatted_skills,
                 row_key='competence',
-                pagination={'rowsPerPage': 10} # Pagination par défaut
+                pagination={'rowsPerPage': 10}
             ).props('flat bordered').classes('w-full')
-            
-            table.bind_filter_from(filter_input, 'value')
 
-            # Ajout des contrôles de pagination manuels
-            with ui.row().classes('w-full items-center justify-center gap-2 mt-4'):
-                ui.button(icon='first_page', on_click=lambda: table.set_pagination({'page': 1})) \
-                    .props('flat dense round') \
-                    .bind_enabled_from(table, 'pagination', backward=lambda p: p['page'] > 1)
+            with table.add_slot('pagination', 'props'):
+                with ui.row().classes('w-full items-center justify-center gap-2'):
+                    ui.button(icon='first_page', on_click=props.firstPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isFirstPage', backward=lambda v: not v)
 
-                ui.button(icon='chevron_left', on_click=lambda: table.set_pagination({'page': table.pagination['page'] - 1})) \
-                    .props('flat dense round') \
-                    .bind_enabled_from(table, 'pagination', backward=lambda p: p['page'] > 1)
+                    ui.button(icon='chevron_left', on_click=props.prevPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isFirstPage', backward=lambda v: not v)
 
-                ui.label().bind_text_from(
-                    props, 'pagination',
-                    lambda p: f"{p.page} / {p.pagesNumber}"
-                ).classes('font-mono')
+                    ui.label().bind_text_from(
+                        props, 'pagination',
+                        lambda p: f"{p.page} / {p.pagesNumber}"
+                    ).classes('font-mono')
 
-                ui.button(icon='chevron_right', on_click=lambda: table.set_pagination({'page': table.pagination['page'] + 1})) \
-                    .props('flat dense round') \
-                    .bind_enabled_from(table, 'pagination', backward=lambda p: p['page'] < p['pagesNumber'])
+                    ui.button(icon='chevron_right', on_click=props.nextPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isLastPage', backward=lambda v: not v)
 
-                ui.button(icon='last_page', on_click=lambda: table.set_pagination({'page': table.pagination['pagesNumber']})) \
-                    .props('flat dense round') \
-                    .bind_enabled_from(table, 'pagination', backward=lambda p: p['page'] < p['pagesNumber'])
+                    ui.button(icon='last_page', on_click=props.lastPage, color='grey-8') \
+                        .props('flat dense round') \
+                        .bind_enabled_from(props, 'isLastPage', backward=lambda v: not v)
             
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
