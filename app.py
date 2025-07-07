@@ -91,8 +91,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
-            ui.button('Exporter en Excel', on_click=lambda: ui.open('/download/excel', new_tab=True), icon='o_download', color='green').props('dense')
-            ui.button('Exporter en CSV', on_click=lambda: ui.open('/download/csv', new_tab=True), icon='o_download', color='blue-grey').props('dense')
+            ui.link('Exporter en Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
+            ui.link('Exporter en CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
 
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
