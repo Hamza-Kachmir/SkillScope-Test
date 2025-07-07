@@ -1,4 +1,4 @@
-# FICHIER : app.py (version entièrement corrigée pour le design et la responsivité)
+# FICHIER : app.py (Version finale avec corrections de design et de responsivité)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -57,20 +57,21 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             ui.label(f"📊 Top {len(df_skills)} pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
-        # Cartes KPI responsives
-        with ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
-            with ui.card().classes('items-center grow p-4'):
+        # FIX: Cartes de résultats avec des largeurs égales
+        with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
+            # La classe `flex-1` force les deux cartes à prendre la même place
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
                 ui.label(df_skills.iloc[0]['Compétence']).classes('text-2xl font-bold text-center text-blue-600')
-            with ui.card().classes('items-center grow p-4'):
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
         
         ui.label("Classement détaillé des compétences").classes('text-xl font-bold mt-8 mb-2')
         
         with ui.column().classes('w-full gap-2'):
-            # Filtre avec un style plus discret
-            filter_input = ui.input(placeholder="Filtrer les compétences...").props('outlined dense').classes('w-full md:w-1/2 self-start')
+            # FIX: Filtre occupant toute la largeur
+            filter_input = ui.input(placeholder="Filtrer les compétences...").props('outlined dense').classes('w-full')
             
             table = ui.table(
                 columns=[
@@ -87,15 +88,12 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             table.bind_filter_from(filter_input, 'value')
 
 async def run_analysis_logic(force_refresh: bool = False):
-    if not all([job_input, offers_select, job_input.value, offers_select.value]):
-        return
-
+    # ... (logique inchangée)
+    if not all([job_input, offers_select, job_input.value, offers_select.value]): return
     job_title = job_input.value
     num_offers = offers_select.value
-    
     results_container.clear()
     log_view.clear()
-    
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     if not any(isinstance(h, UiLogHandler) for h in logger.handlers):
@@ -103,43 +101,37 @@ async def run_analysis_logic(force_refresh: bool = False):
         log_handler = UiLogHandler(log_view)
         log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
         logger.addHandler(log_handler)
-
     with results_container:
         with ui.card().classes('w-full p-4 items-center'):
             ui.spinner(size='lg', color='primary')
             ui.label(f"Analyse en cours...").classes('text-gray-600 mt-2')
-
     try:
         results = await get_skills_for_job(job_title, num_offers, logger)
-        if results is None:
-            raise ValueError("Aucune offre ou compétence trouvée.")
-        
+        if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
         display_results(results_container, results, job_title)
-
     except Exception as e:
         logger.error(f"Une erreur est survenue : {e}")
         results_container.clear()
-        with results_container:
-            ui.label(f"Erreur : {e}").classes('text-negative')
+        with results_container: ui.label(f"Erreur : {e}").classes('text-negative')
 
 async def handle_flush_cache():
+    # ... (logique inchangée)
     success = await run.io_bound(flush_all_cache)
-    if success:
-        ui.notify('Le cache a été vidé.', color='positive')
-        results_container.clear()
-    else:
-        ui.notify('Erreur lors du vidage du cache.', color='negative')
+    if success: ui.notify('Le cache a été vidé.', color='positive'); results_container.clear()
+    else: ui.notify('Erreur lors du vidage du cache.', color='negative')
 
 @ui.page('/')
 def main_page():
     global job_input, offers_select, results_container, log_view
+    
+    # FIX: Ajout de la balise meta viewport pour une responsivité correcte sur mobile
+    ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     
     app.add_static_files('/assets', 'assets')
     ui.query('body').style('background-color: #f8fafc;')
 
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-between'):
-            # Logo toujours visible
             ui.image('/assets/SkillScope.svg').classes('w-32 md:w-40')
             with ui.row().classes('items-center'):
                 ui.link('Portfolio', 'https://portfolio-hamza-kachmir.vercel.app/', new_tab=True).classes('text-gray-600 hover:text-blue-700').style('text-decoration: none;')
@@ -149,10 +141,11 @@ def main_page():
         ui.markdown("## Analysez les compétences clés d'un métier").classes('text-2xl md:text-3xl text-center font-light')
         ui.markdown("_Données **France Travail** analysées par **Google Gemini**._").classes('text-center text-gray-500 mb-6')
 
-        # NOUVEAU: Conteneur de recherche entièrement responsif
+        # FIX: Barre de recherche stable qui ne se décale pas
         with ui.row().classes('w-full max-w-lg items-stretch gap-2 flex-wrap sm:flex-nowrap'):
-            job_input = ui.input(placeholder="Ex: Pâtissier, Ingénieur Data...").props('outlined').classes('grow w-full sm:w-auto')
-            offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('grow w-full sm:w-auto')
+            # La propriété 'clearable' a été enlevée pour garantir une largeur stable
+            job_input = ui.input(placeholder="Ex: Pâtissier, Ingénieur Data...").props('outlined').classes('w-full sm:w-2/3')
+            offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('w-full sm:w-1/3')
         
         launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary size=lg').classes('w-full max-w-lg')
         
@@ -164,9 +157,7 @@ def main_page():
                 ui.button('Vider le cache', on_click=handle_flush_cache, color='red').props('flat dense')
             log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs rounded-b-lg')
 
-    job_input.props('clearable')
     launch_button.bind_enabled_from(job_input, 'value', backward=lambda v: bool(v))
 
-# Port pour Render
 port = int(os.environ.get('PORT', 10000))
 ui.run(host='0.0.0.0', port=port, title='SkillScope | Analyse de compétences')
