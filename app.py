@@ -185,5 +185,5 @@ def main_page():
     job_input.props('clearable')
     launch_button.bind_enabled_from(job_input, 'value', backward=lambda v: bool(v))
 
-port = int(os.environ.get('PORT', 8080))
+port = int(os.environ.get('PORT', 10000))
 ui.run(host='0.0.0.0', port=port, title='SkillScope | Analyse de compétences')
