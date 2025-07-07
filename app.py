@@ -1,4 +1,4 @@
-# FICHIER : app.py (Version finale avec layout stabilisé et logs de débogage)
+# FICHIER : app.py (Version simplifiée, stable, avec logs étendus)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -41,14 +41,19 @@ def display_results(container: ui.column, results_dict: dict):
     actual_offers = results_dict.get('actual_offers_count', 0)
     if not skills_data:
         logger.warning("Affichage des résultats : Aucune donnée de compétence à afficher.")
+        with container:
+            with ui.card().classes('w-full bg-yellow-100 p-4'):
+                ui.label("Aucune offre ou compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
         return
 
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     
     with container:
-        with ui.row().classes('w-full items-center'):
+        # FIX: Alignement du titre sur la ligne de base
+        with ui.row().classes('w-full items-baseline'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
+
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
@@ -73,52 +78,29 @@ def display_results(container: ui.column, results_dict: dict):
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
 async def run_analysis_logic(force_refresh: bool = False):
-    global launch_button, job_input
     logger = logging.getLogger()
-    
-    logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
+    logger.info("--- ANALYSE DÉCLENCHÉE ---")
     if not job_input.value: 
-        logger.warning("Analyse annulée : aucun métier n'a été entré.")
+        logger.warning("Analyse annulée : aucun métier entré.")
         return
-
-    logger.info("1. Désactivation des contrôles de l'interface.")
-    launch_button.disable()
-    job_input.disable()
-    ui.run_javascript('document.activeElement.blur()')
     
     try:
-        logger.info("2. Nettoyage de la zone de résultats précédente.")
         results_container.clear()
         with results_container:
             with ui.card().classes('w-full p-4 items-center'):
                 ui.spinner(size='lg', color='primary')
                 ui.label("Analyse en cours...").classes('text-gray-600 mt-2')
 
-        job_value = job_input.value
-        offers_value = offers_select.value
-        logger.info(f"3. PRÉ-APPEL au pipeline pour '{job_value}' avec {offers_value} offres.")
+        results = await get_skills_for_job(job_input.value, offers_select.value, logger)
         
-        results = await get_skills_for_job(job_value, offers_value, logger)
-        
-        logger.info("4. POST-APPEL au pipeline.")
-        if results is None:
-            logger.error("Le pipeline n'a retourné aucun résultat (None).")
-            raise ValueError("Aucune offre ou compétence trouvée.")
-        
-        logger.info(f"5. Le pipeline a retourné {len(results.get('skills', []))} compétences. Préparation de l'affichage.")
+        if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
         display_results(results_container, results)
-        logger.info("6. Affichage des résultats terminé.")
         
     except Exception as e:
-        logger.critical(f"ERREUR CRITIQUE dans run_analysis_logic : {e}")
+        logger.critical(f"ERREUR CRITIQUE : {e}")
         results_container.clear()
-        with results_container: ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
-        
-    finally:
-        logger.info("7. (Finally) : Réactivation des contrôles de l'interface.")
-        launch_button.enable()
-        job_input.enable()
-        logger.info("--- FIN DU PROCESSUS D'ANALYSE ---")
+        with results_container: ui.label(f"Une erreur est survenue, veuillez réessayer.").classes('text-negative')
+    logger.info("--- FIN DU PROCESSUS ---")
 
 
 @ui.page('/')
@@ -134,20 +116,23 @@ def main_page():
             ui.image('/assets/SkillScope.svg').classes('w-32 md:w-40')
 
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
+        # ... (textes d'intro inchangés)
         ui.markdown("### Un outil d'analyse pour extraire et quantifier les compétences les plus demandées sur le marché de l'emploi.").classes('text-center font-light text-gray-800')
         with ui.row():
             ui.html("<i>Actuellement basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
-        # FIX: Layout stabilisé avec des proportions fixes
-        with ui.row().classes('w-full max-w-lg items-stretch gap-2 no-wrap'):
+        # FIX: Layout de recherche stabilisé avec items-center pour l'alignement vertical
+        with ui.row().classes('w-full max-w-lg items-center gap-2'):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-2/3')
-            job_input.style('font-size: 16px;')
             
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined dense').classes('w-1/3')
-            offers_select.style('font-size: 16px;')
-        
-        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary id="launch-button"').classes('w-full max-w-md')
-        job_input.on('keydown.enter', lambda: ui.run_javascript('document.getElementById("launch-button").click()'))
+            
+        # On garde la police à 16px pour éviter le zoom, même si dense est appliqué
+        job_input.style('font-size: 16px;')
+        offers_select.style('font-size: 16px;')
+
+        # FIX: on_click simplifié
+        launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis_logic).props('color=primary').classes('w-full max-w-md')
         
         results_container = ui.column().classes('w-full mt-6')
         
@@ -162,13 +147,21 @@ def main_page():
                 ui.html(f'<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
                 ui.html(f'<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
 
-        with ui.expansion("Voir les logs", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
+        # FIX: Ajout de logs sur toutes les interactions utilisateur
+        logs_expansion = ui.expansion("Voir les logs", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg')
+        with logs_expansion:
             log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
             handler = UiLogHandler(log_view)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
             logger.handlers.clear()
             logger.addHandler(handler)
+        
+        # Log des interactions
+        job_input.on('change', lambda: logging.info(f"Interaction: Texte changé en '{job_input.value}'"))
+        offers_select.on('change', lambda: logging.info(f"Interaction: Offres changées en '{offers_select.value}'"))
+        launch_button.on('click', lambda: logging.info("Interaction: Clic sur 'Lancer l'analyse'"))
+        logs_expansion.on('value-change', lambda e: logging.info(f"Interaction: Section Logs {'ouverte' if e.value else 'fermée'}."))
 
     launch_button.bind_enabled_from(job_input, 'value', backward=lambda v: bool(v))
 
