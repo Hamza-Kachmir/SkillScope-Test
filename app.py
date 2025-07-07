@@ -1,8 +1,8 @@
 import pandas as pd
 import logging
-from nicegui import ui, app, run
 import os
 import sys
+import io
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
@@ -48,6 +48,23 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     df = pd.DataFrame(formatted_skills)
     clean_job_title = "".join(c if c.isalnum() else "_" for c in job_title)
 
+    def download_excel():
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Resultats')
+        ui.download(
+            data=output.getvalue(),
+            filename=f'skillscope_{clean_job_title}.xlsx',
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    def download_csv():
+        csv_data = df.to_csv(index=False).encode('utf-8')
+        ui.download(
+            data=csv_data,
+            filename=f'skillscope_{clean_job_title}.csv',
+            media_type='text/csv'
+        )
 
     with container:
         with ui.row().classes('w-full items-baseline'):
@@ -65,17 +82,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
-            ui.button('Exporter en Excel', on_click=lambda: ui.download(
-                content=df.to_excel(index=False).encode('utf-8'),
-                filename=f'skillscope_{clean_job_title}.xlsx',
-                media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            ), icon='o_download', color='green').props('dense')
-
-            ui.button('Exporter en CSV', on_click=lambda: ui.download(
-                content=df.to_csv(index=False).encode('utf-8'),
-                filename=f'skillscope_{clean_job_title}.csv',
-                media_type='text/csv'
-            ), icon='o_download', color='blue-grey').props('dense')
+            ui.button('Exporter en Excel', on_click=download_excel, icon='o_download', color='green').props('dense')
+            ui.button('Exporter en CSV', on_click=download_csv, icon='o_download', color='blue-grey').props('dense')
 
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
@@ -158,8 +166,13 @@ def main_page():
                 ui.html(f'<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
                 ui.html(f'<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
 
-        with ui.expansion("Voir les logs", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
-            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
+        with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
+            with ui.column().classes('w-full p-2'):
+                log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
+                ui.button('Vider tout le cache',
+                          on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
+                          color='red-6', icon='o_delete_forever').classes('mt-2')
+
             handler = UiLogHandler(log_view)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
