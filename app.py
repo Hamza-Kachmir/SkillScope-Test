@@ -1,4 +1,4 @@
-# FICHIER : app.py (Version avec un tableau personnalisé)
+# FICHIER : app.py (Version finale avec pagination et nouvelle disposition)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -19,7 +19,6 @@ results_container = None
 log_view = None
 
 class UiLogHandler(logging.Handler):
-    # ... (code inchangé)
     def __init__(self, log_element: ui.log):
         super().__init__()
         self.log_element = log_element
@@ -29,7 +28,6 @@ class UiLogHandler(logging.Handler):
         except Exception as e: print(f"Error in UiLogHandler: {e}")
 
 def format_skill_name(skill: str) -> str:
-    # ... (code inchangé)
     known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
     if skill.lower() in known_acronyms: return skill.upper()
     return skill.capitalize()
@@ -41,6 +39,15 @@ def display_results(container: ui.column, results_dict: dict):
     actual_offers = results_dict.get('actual_offers_count', 0)
     if not skills_data: return
 
+    # Formatage des données avant de les afficher
+    formatted_skills = []
+    for i, item in enumerate(skills_data):
+        formatted_skills.append({
+            'classement': i + 1,
+            'competence': format_skill_name(item['skill']),
+            'frequence': item['frequency']
+        })
+
     with container:
         with ui.row().classes('w-full items-center'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
@@ -49,7 +56,7 @@ def display_results(container: ui.column, results_dict: dict):
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
-                ui.label(format_skill_name(skills_data[0]['skill'])).classes('text-2xl font-bold text-center text-blue-600')
+                ui.label(formatted_skills[0]['competence']).classes('text-2xl font-bold text-center text-blue-600')
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
@@ -57,51 +64,22 @@ def display_results(container: ui.column, results_dict: dict):
         ui.label("Classement détaillé des compétences").classes('text-xl font-bold mt-8 mb-2')
         
         with ui.column().classes('w-full gap-2'):
-            # FIX: Placeholder mis à jour
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
             
-            # FIX: Remplacement complet du ui.table par un système de lignes et colonnes
-            with ui.column().classes('w-full styled-scrollbar border rounded-lg').style('max-height: 50vh; overflow-y: auto;'):
-                # En-tête du tableau personnalisé
-                with ui.row().classes('w-full p-2 bg-gray-50 font-bold sticky top-0 z-10'):
-                    ui.label('#').classes('w-1/12 text-center')
-                    ui.label('Compétence').classes('w-7/12')
-                    ui.label('Fréquence').classes('w-4/12 text-center')
-                
-                # Conteneur pour les lignes de données filtrables
-                rows_container = ui.column().classes('w-full')
-
-            def update_rows():
-                rows_container.clear()
-                search_term = filter_input.value.lower()
-                
-                # Recréation des données formatées à chaque mise à jour
-                formatted_skills = []
-                for i, item in enumerate(skills_data):
-                    formatted_skills.append({
-                        'classement': i + 1,
-                        'competence': format_skill_name(item['skill']),
-                        'frequence': item['frequency']
-                    })
-
-                filtered_data = [
-                    row for row in formatted_skills
-                    if search_term in row['competence'].lower()
-                ]
-
-                with rows_container:
-                    if not filtered_data:
-                        ui.label("Aucune compétence ne correspond à votre filtre.").classes('p-4 text-center text-gray-500')
-                    else:
-                        for row_data in filtered_data:
-                            with ui.row().classes('w-full p-2 border-t items-center'):
-                                ui.label(row_data['classement']).classes('w-1/12 text-center')
-                                ui.label(row_data['competence']).classes('w-7/12')
-                                ui.label(row_data['frequence']).classes('w-4/12 text-center')
+            # FIX: Retour au composant ui.table, sans limite de hauteur, avec pagination
+            table = ui.table(
+                columns=[
+                    {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
+                    {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
+                    {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
+                ],
+                rows=formatted_skills,
+                row_key='competence'
+            ).props('flat bordered').classes('w-full')
             
-            filter_input.on('change', update_rows)
-            update_rows() # Affichage initial
-
+            # La pagination gère le nombre de lignes, rendant le scroll du conteneur inutile
+            table.props('pagination={"rowsPerPage": 10}')
+            table.bind_filter_from(filter_input, 'value')
 
 async def run_analysis_logic(force_refresh: bool = False):
     global launch_button, job_input
@@ -130,13 +108,8 @@ async def run_analysis_logic(force_refresh: bool = False):
 @ui.page('/')
 def main_page():
     global job_input, offers_select, launch_button, results_container, log_view
+    
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
-    ui.add_css('''
-        .styled-scrollbar::-webkit-scrollbar { width: 12px; }
-        .styled-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
-        .styled-scrollbar::-webkit-scrollbar-thumb { background: #ccc; border-radius: 6px; }
-        .styled-scrollbar::-webkit-scrollbar-thumb:hover { background: #aaa; }
-    ''')
     app.add_static_files('/assets', 'assets')
     ui.query('body').style('background-color: #f8fafc;')
 
@@ -150,29 +123,21 @@ def main_page():
             ui.html("<i>Actuellement basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
         with ui.row().classes('w-full max-w-lg items-stretch gap-2'):
-            # FIX: Placeholder mis à jour et inputs en mode "dense"
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('flex-grow')
             job_input.style('font-size: 16px;')
             
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined dense')
             offers_select.style('font-size: 16px;')
         
-        # FIX: Bouton moins large et moins haut
         launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary id="launch-button"').classes('w-full max-w-md')
         job_input.on('keydown.enter', lambda: ui.run_javascript('document.getElementById("launch-button").click()'))
         
+        # FIX: Ordre des éléments modifié pour la nouvelle disposition
+        # 1. Conteneur des résultats (vide au début)
         results_container = ui.column().classes('w-full mt-6')
         
-        with ui.expansion("Voir les logs", icon='o_code').classes('w-full mt-8 bg-gray-50 rounded-lg'):
-            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
-            handler = UiLogHandler(log_view)
-            logger = logging.getLogger()
-            logger.setLevel(logging.INFO)
-            logger.handlers.clear()
-            logger.addHandler(handler)
-
-        with ui.column().classes('w-full items-center mt-12 pt-6 border-t'):
-            # ... (code du footer inchangé)
+        # 2. Footer (visible dès le début, car results_container est vide)
+        with ui.column().classes('w-full items-center mt-8 pt-6'):
              ui.html(f'''
                 <p style="margin: 0; font-size: 0.875rem; color: #6b7280;">
                     <b style="color: black;">Développé par</b>
@@ -182,6 +147,15 @@ def main_page():
              with ui.row().classes('gap-4 mt-2'):
                 ui.html(f'<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
                 ui.html(f'<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
+
+        # 3. Logs (tout en bas de la page)
+        with ui.expansion("Voir les logs", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
+            log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
+            handler = UiLogHandler(log_view)
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+            logger.handlers.clear()
+            logger.addHandler(handler)
 
     launch_button.bind_enabled_from(job_input, 'value', backward=lambda v: bool(v))
 
