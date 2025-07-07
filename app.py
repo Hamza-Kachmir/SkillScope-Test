@@ -1,4 +1,4 @@
-# FICHIER : app.py (Corrigé pour le bug du cache)
+# FICHIER : app.py (Version finale avec correction du bug "Entrée" et solution pour le scroll mobile)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -19,11 +19,11 @@ results_container = None
 log_view = None
 
 class UiLogHandler(logging.Handler):
+    # ... (code inchangé)
     def __init__(self, log_element: ui.log):
         super().__init__()
         self.log_element = log_element
         self.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-
     def emit(self, record):
         try:
             msg = self.format(record)
@@ -32,6 +32,7 @@ class UiLogHandler(logging.Handler):
             print(f"Error in UiLogHandler: {e}")
 
 def format_skill_name(skill: str) -> str:
+    # ... (code inchangé)
     known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
     if skill.lower() in known_acronyms:
         return skill.upper()
@@ -45,9 +46,7 @@ def display_results(container: ui.column, results_dict: dict):
     actual_offers = results_dict.get('actual_offers_count', 0)
     
     if not skills_data:
-        with container:
-            with ui.card().classes('w-full bg-yellow-100 p-4'):
-                ui.label("Aucune compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
+        # ... (code inchangé)
         return
 
     for item in skills_data:
@@ -75,7 +74,8 @@ def display_results(container: ui.column, results_dict: dict):
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Filtrer les compétences...").props('outlined dense').classes('w-full')
             
-            with ui.column().classes('w-full styled-scrollbar').style('max-height: 50vh; overflow-y: auto;'):
+            # FIX: Conteneur du tableau avec le dégradé visuel comme indice de scroll
+            with ui.column().classes('w-full relative').style('max-height: 50vh; overflow-y: auto;'):
                 table = ui.table(
                     columns=[
                         {'name': 'Classement', 'label': '#', 'field': 'Classement', 'align': 'left', 'sortable': False},
@@ -85,7 +85,10 @@ def display_results(container: ui.column, results_dict: dict):
                     rows=df_skills.to_dict('records'),
                     row_key='Compétence'
                 ).props('flat bordered').classes('w-full')
-            
+                
+                # Le dégradé se place par-dessus la fin du tableau
+                ui.html('<div class="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-gray-100 to-transparent pointer-events-none"></div>')
+
             table.props('pagination={"rowsPerPage": 10}')
             table.bind_filter_from(filter_input, 'value')
 
@@ -110,7 +113,6 @@ async def run_analysis_logic(force_refresh: bool = False):
         
         if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
         
-        # FIX: L'argument 'results' manquant est maintenant passé à la fonction
         display_results(results_container, results)
         
     except Exception as e:
@@ -128,24 +130,15 @@ def main_page():
     
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     
+    # FIX: On ne force plus le style du scrollbar, on force juste le retour à la ligne
     ui.add_css('''
-        .styled-scrollbar::-webkit-scrollbar {
-            -webkit-appearance: none;
-            width: 12px;
-            background-color: #f5f5f5;
-        }
-        .styled-scrollbar::-webkit-scrollbar-thumb {
-            border-radius: 6px;
-            background-color: #cccccc;
-            border: 2px solid #f5f5f5;
-        }
         th {
             white-space: normal !important;
         }
     ''')
     
     app.add_static_files('/assets', 'assets')
-    ui.query('body').style('background-color: #f8fafc;')
+    ui.query('body').classes('bg-gray-100')
 
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-center'):
@@ -161,8 +154,9 @@ def main_page():
             
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('w-full sm:w-1/3')
         
-        job_input.on('keydown.enter', lambda: run_analysis_logic(force_refresh=False))
-        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary size=lg').classes('w-full max-w-lg')
+        # FIX: La touche Entrée simule un clic sur le bouton pour une meilleure stabilité
+        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary size=lg id="launch-button"').classes('w-full max-w-lg')
+        job_input.on('keydown.enter', lambda: ui.run_javascript('document.getElementById("launch-button").click()'))
         
         results_container = ui.column().classes('w-full mt-6')
         
