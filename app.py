@@ -126,8 +126,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
 
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
-            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
-            ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
+            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon=\"o_download\"')
+            ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon=\"o_download\"')
 
         pagination_state = {'page': 1, 'rows_per_page': 10}
         total_pages = max(1, (len(df) + pagination_state['rows_per_page'] - 1) // pagination_state['rows_per_page'])
@@ -147,7 +147,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             end = start + pagination_state['rows_per_page']
             table.rows = df.iloc[start:end].to_dict(orient='records')
             table.update()
-            page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
+            page_info_label.text = f\"{pagination_state['page']} sur {total_pages}\"
 
         def go_to_first():
             if pagination_state['page'] > 1:
@@ -170,11 +170,11 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 update_table()
 
         with ui.row().classes('justify-center items-center gap-4 mt-4'):
-            ui.button('<<', on_click=go_to_first).props('flat dense color=black', disable=pagination_state['page']==1)
-            ui.button('<', on_click=go_to_previous).props('flat dense color=black', disable=pagination_state['page']==1)
+            ui.button('<<', on_click=go_to_first).props('flat dense color=black')
+            ui.button('<', on_click=go_to_previous).props('flat dense color=black')
             page_info_label = ui.label().classes('text-sm text-gray-700')
-            ui.button('>', on_click=go_to_next).props('flat dense color=black', disable=pagination_state['page']==total_pages)
-            ui.button('>>', on_click=go_to_last).props('flat dense color=black', disable=pagination_state['page']==total_pages)
+            ui.button('>', on_click=go_to_next).props('flat dense color=black')
+            ui.button('>>', on_click=go_to_last).props('flat dense color=black')
 
         update_table()
 
@@ -210,6 +210,7 @@ def main_page():
     global job_input, launch_button, results_container, log_view, all_log_messages
     ui.add_head_html('''
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="icon" type="image/svg+xml" href="/assets/SkillScope.svg">
         <style>
             ::-webkit-scrollbar {
                 width: 8px;
@@ -219,7 +220,6 @@ def main_page():
                 background-color: rgba(100, 100, 100, 0.5);
                 border-radius: 4px;
             }
-            .q-btn:hover { background-color: transparent !important; }
         </style>
     ''')
     app.add_static_files('/assets', 'assets')
@@ -245,7 +245,7 @@ def main_page():
             with ui.column().classes('w-full p-2'):
                 log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
                 ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever').classes('mt-2')
-                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
+                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
             handler = UiLogHandler(log_view, all_log_messages)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
