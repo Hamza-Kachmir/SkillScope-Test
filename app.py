@@ -21,7 +21,7 @@ log_view = None
 
 @app.get('/download/excel')
 def download_excel_endpoint():
-    df = app.storage.session.get('latest_df')
+    df = app.storage.client.get('latest_df')
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
     
@@ -34,7 +34,7 @@ def download_excel_endpoint():
 
 @app.get('/download/csv')
 def download_csv_endpoint():
-    df = app.storage.session.get('latest_df')
+    df = app.storage.client.get('latest_df')
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
         
@@ -73,7 +73,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
 
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
-    app.storage.session['latest_df'] = df
+    app.storage.client['latest_df'] = df
 
     with container:
         with ui.row().classes('w-full items-baseline'):
