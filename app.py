@@ -83,10 +83,108 @@ def format_skill_name(skill: str) -> str:
         return skill.upper()
     return skill.capitalize()
 
+def display_results(container: ui.column, results_dict: dict, job_title: str):
+    logger = logging.getLogger()
+    logger.info("Affichage des résultats : Début de la fonction display_results.")
+    container.clear()
+
+    skills_data = results_dict.get('skills', [])
+    top_diploma = results_dict.get('top_diploma', 'Non précisé')
+    actual_offers = results_dict.get('actual_offers_count', 0)
+
+    if not skills_data:
+        logger.warning("Affichage des résultats : Aucune offre ou compétence pertinente n'a pu être extraite.")
+        with container:
+            with ui.card().classes('w-full bg-yellow-100 p-4'):
+                ui.label("Aucune offre ou compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
+        return
+
+    formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
+    df = pd.DataFrame(formatted_skills)
+
+    try:
+        app.latest_df = df
+        app.latest_job_title = job_title
+        app.latest_actual_offers_count = actual_offers
+        logger.info(f"✅ Résultats enregistrés : {len(df)} lignes dans latest_df.")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
+
+    with container:
+        with ui.row().classes('w-full items-baseline'):
+            ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
+            ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
+
+        with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
+                ui.label('Top Compétence').classes('text-sm text-gray-500')
+                ui.label(formatted_skills[0]['competence']).classes('text-2xl font-bold text-center text-blue-600')
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
+                ui.label('Niveau Demandé').classes('text-sm text-gray-500')
+                ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
+
+        ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
+
+        with ui.row().classes('w-full justify-end gap-2 mb-2'):
+            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
+            ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
+
+        page_info_label = ui.label().classes('text-sm text-gray-600')
+
+        pagination_state = {'page': 1, 'rows_per_page': 10}
+
+        def update_table():
+            start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
+            end = start + pagination_state['rows_per_page']
+            table.rows = df.iloc[start:end].to_dict(orient='records')
+            table.update()
+            page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
+
+        def go_to_first():
+            pagination_state['page'] = 1
+            update_table()
+
+        def go_to_previous():
+            if pagination_state['page'] > 1:
+                pagination_state['page'] -= 1
+                update_table()
+
+        def go_to_next():
+            if pagination_state['page'] < total_pages:
+                pagination_state['page'] += 1
+                update_table()
+
+        def go_to_last():
+            pagination_state['page'] = total_pages
+            update_table()
+
+        total_pages = max(1, (len(df) + pagination_state['rows_per_page'] - 1) // pagination_state['rows_per_page'])
+
+        table = ui.table(
+            columns=[
+                {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
+                {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left'},
+                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left'},
+            ],
+            rows=[],
+            row_key='competence',
+        ).props('flat bordered').classes('w-full')
+
+        update_table()
+
+        with ui.row().classes('justify-center items-center gap-4 mt-2'):
+            ui.button('<<', on_click=go_to_first).props('flat dense color=black')
+            ui.button('<', on_click=go_to_previous).props('flat dense color=black')
+            page_info_label
+            ui.button('>', on_click=go_to_next).props('flat dense color=black')
+            ui.button('>>', on_click=go_to_last).props('flat dense color=black')
+
+    logger.info("Affichage des résultats : Fin de la fonction display_results.")
+
 async def run_analysis_logic(force_refresh: bool = False):
     logger = logging.getLogger()
     logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
-    if not job_input.value: 
+    if not job_input.value:
         logger.warning("Analyse annulée : aucun métier n'a été entré.")
         return
     try:
@@ -98,12 +196,14 @@ async def run_analysis_logic(force_refresh: bool = False):
         job_value = job_input.value
         logger.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
         results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
-        if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
+        if results is None:
+            raise ValueError("Aucune offre ou compétence trouvée.")
         display_results(results_container, results, job_value)
     except Exception as e:
         logger.critical(f"ERREUR CRITIQUE : {e}")
         results_container.clear()
-        with results_container: ui.label(f"Une erreur est survenue, veuillez réessayer.").classes('text-negative')
+        with results_container:
+            ui.label(f"Une erreur est survenue, veuillez réessayer.").classes('text-negative')
     logger.info("--- FIN DU PROCESSUS ---")
 
 @ui.page('/')
@@ -119,13 +219,6 @@ def main_page():
             ::-webkit-scrollbar-thumb {
                 background-color: rgba(100, 100, 100, 0.5);
                 border-radius: 4px;
-            }
-            .q-btn {
-                background: none !important;
-                box-shadow: none !important;
-            }
-            .q-btn:hover {
-                background: transparent !important;
             }
         </style>
     ''')
