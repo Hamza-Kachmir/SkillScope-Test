@@ -1,4 +1,4 @@
-# FICHIER : app.py (Version finale avec corrections de bugs et de design)
+# FICHIER : app.py (Corrigé pour le bug du cache)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -18,7 +18,6 @@ launch_button = None
 results_container = None
 log_view = None
 
-# FIX: Correction du handler de logs pour qu'il soit fiable
 class UiLogHandler(logging.Handler):
     def __init__(self, log_element: ui.log):
         super().__init__()
@@ -46,7 +45,9 @@ def display_results(container: ui.column, results_dict: dict):
     actual_offers = results_dict.get('actual_offers_count', 0)
     
     if not skills_data:
-        # ... (code inchangé)
+        with container:
+            with ui.card().classes('w-full bg-yellow-100 p-4'):
+                ui.label("Aucune compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
         return
 
     for item in skills_data:
@@ -57,9 +58,8 @@ def display_results(container: ui.column, results_dict: dict):
     df_skills.insert(0, 'Classement', range(1, len(df_skills) + 1))
     
     with container:
-        # FIX: Titre simplifié
         with ui.row().classes('w-full items-center'):
-            ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
+            ui.label("Synthèse des compétences").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
@@ -85,7 +85,7 @@ def display_results(container: ui.column, results_dict: dict):
                     rows=df_skills.to_dict('records'),
                     row_key='Compétence'
                 ).props('flat bordered').classes('w-full')
-
+            
             table.props('pagination={"rowsPerPage": 10}')
             table.bind_filter_from(filter_input, 'value')
 
@@ -94,7 +94,6 @@ async def run_analysis_logic(force_refresh: bool = False):
     
     if not job_input.value: return
 
-    # FIX: Désactive les contrôles pour éviter les bugs
     launch_button.disable()
     job_input.disable()
     ui.run_javascript('document.activeElement.blur()')
@@ -110,7 +109,9 @@ async def run_analysis_logic(force_refresh: bool = False):
         results = await get_skills_for_job(job_input.value, offers_select.value, logger)
         
         if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
-        display_results(results_container)
+        
+        # FIX: L'argument 'results' manquant est maintenant passé à la fonction
+        display_results(results_container, results)
         
     except Exception as e:
         logging.getLogger().error(f"Une erreur est survenue : {e}")
@@ -118,10 +119,8 @@ async def run_analysis_logic(force_refresh: bool = False):
         with results_container: ui.label(f"Erreur : {e}").classes('text-negative')
         
     finally:
-        # FIX: Réactive les contrôles à la fin de l'analyse
         launch_button.enable()
         job_input.enable()
-
 
 @ui.page('/')
 def main_page():
@@ -129,7 +128,6 @@ def main_page():
     
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     
-    # FIX: CSS plus robuste pour la scrollbar et les en-têtes de tableau
     ui.add_css('''
         .styled-scrollbar::-webkit-scrollbar {
             -webkit-appearance: none;
@@ -159,7 +157,6 @@ def main_page():
 
         with ui.row().classes('w-full max-w-lg items-stretch gap-2 flex-wrap sm:flex-nowrap'):
             job_input = ui.input(placeholder="Ex: Ingénieur Data...").props('outlined clearable').classes('w-full sm:w-2/3')
-            # FIX: Ajout du style pour empêcher le zoom sur iPhone
             job_input.style('font-size: 16px;')
             
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('w-full sm:w-1/3')
@@ -171,14 +168,12 @@ def main_page():
         
         with ui.expansion("Voir les logs", icon='o_code').classes('w-full mt-8 bg-gray-50 rounded-lg'):
             log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
-            # FIX: Initialisation fiable du logger
             handler = UiLogHandler(log_view)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
             logger.handlers.clear()
             logger.addHandler(handler)
 
-        # FIX: Footer stylisé comme demandé avec du HTML
         with ui.column().classes('w-full items-center mt-12 pt-6 border-t'):
             ui.html(f'''
                 <p style="margin: 0; font-size: 0.875rem; color: #6b7280;">
