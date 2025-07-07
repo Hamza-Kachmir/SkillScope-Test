@@ -3,11 +3,10 @@ import logging
 import os
 import sys
 import io
-from nicegui import ui, app, run
+from nicegui import ui, app
 from starlette.responses import Response
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
-
 from pipeline import get_skills_for_job
 from src.cache_manager import flush_all_cache
 
@@ -87,21 +86,17 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
     logger.info("Affichage des résultats : Début de la fonction display_results.")
     container.clear()
-
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
     actual_offers = results_dict.get('actual_offers_count', 0)
-
     if not skills_data:
         logger.warning("Affichage des résultats : Aucune offre ou compétence pertinente n'a pu être extraite.")
         with container:
             with ui.card().classes('w-full bg-yellow-100 p-4'):
                 ui.label("Aucune offre ou compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
         return
-
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
-
     try:
         app.latest_df = df
         app.latest_job_title = job_title
@@ -109,7 +104,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         logger.info(f"✅ Résultats enregistrés : {len(df)} lignes dans latest_df.")
     except Exception as e:
         logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
-
     with container:
         with ui.row().classes('w-full items-baseline'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
@@ -121,12 +115,10 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
-
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
-        with ui.row().classes('w-full justify-between items-center gap-4 mb-2'):
-            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white').props('icon="o_download"')
+        with ui.row().classes('w-full justify-end gap-2 mb-2'):
+            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
             ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
-
         with ui.column().classes('w-full gap-2'):
             ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
             ui.table(
@@ -139,7 +131,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 row_key='competence',
                 pagination={'rowsPerPage': 10}
             ).props('flat bordered').classes('w-full')
-
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
 async def run_analysis_logic(force_refresh: bool = False):
@@ -174,17 +165,9 @@ def main_page():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="icon" type="image/svg+xml" href="/assets/SkillScope.svg">
         <style>
-            ::-webkit-scrollbar {
-                width: 8px;
-                height: 8px;
-            }
-            ::-webkit-scrollbar-thumb {
-                background-color: rgba(100, 100, 100, 0.5);
-                border-radius: 4px;
-            }
-            button:hover {
-                background-color: #e0e0e0;
-            }
+            ::-webkit-scrollbar { width: 8px; height: 8px; }
+            ::-webkit-scrollbar-thumb { background-color: rgba(100, 100, 100, 0.5); border-radius: 4px; }
+            button:hover { background-color: rgba(0,0,0,0.05); }
         </style>
     ''')
     app.add_static_files('/assets', 'assets')
@@ -220,7 +203,6 @@ def main_page():
             logger.setLevel(logging.INFO)
             logger.handlers.clear()
             logger.addHandler(handler)
-
     launch_button.bind_enabled_from(job_input, 'value', backward=lambda v: bool(v))
 
 port = int(os.environ.get('PORT', 10000))
