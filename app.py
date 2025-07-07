@@ -1,15 +1,17 @@
-# FICHIER : app.py (contenu mis à jour)
+# FICHIER : app.py (version entièrement corrigée pour le design et la responsivité)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
 import os
 import sys
 
+# Configuration du chemin
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
 from pipeline import get_skills_for_job
 from src.cache_manager import delete_from_cache, flush_all_cache
 
+# Variables globales
 job_input = None
 offers_select = None
 results_container = None
@@ -35,7 +37,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
-    # On récupère le nombre réel d'offres
     actual_offers = results_dict.get('actual_offers_count', 0)
     
     if not skills_data:
@@ -52,45 +53,37 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     df_skills.insert(0, 'Classement', range(1, len(df_skills) + 1))
     
     with container:
-        # Ligne de titre améliorée
-        with ui.row().classes('w-full items-center justify-between'):
-            with ui.row(wrap=False).classes('items-center'):
-                ui.label(f"📊 Top {len(df_skills)} pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
-                # Affichage du nombre réel d'offres
-                ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
-            
-            refresh_button = ui.button('Rafraîchir', icon='refresh', on_click=lambda: refresh_analysis(job_title, offers_select.value))
-            refresh_button.props('color=grey-6 flat dense')
+        with ui.row().classes('w-full items-center'):
+            ui.label(f"📊 Top {len(df_skills)} pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
+            ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
-        # Cartes KPI simplifiées
-        with ui.row().classes('w-full justify-around mt-4 gap-4'):
-            with ui.card().classes('items-center flex-grow p-4'):
+        # Cartes KPI responsives
+        with ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
+            with ui.card().classes('items-center grow p-4'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
                 ui.label(df_skills.iloc[0]['Compétence']).classes('text-2xl font-bold text-center text-blue-600')
-            with ui.card().classes('items-center flex-grow p-4'):
+            with ui.card().classes('items-center grow p-4'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
         
         ui.label("Classement détaillé des compétences").classes('text-xl font-bold mt-8 mb-2')
         
-        # Le filtre et le tableau sont dans une colonne pour aligner leur largeur
         with ui.column().classes('w-full gap-2'):
-            filter_input = ui.input(placeholder="Filtrer les compétences...").props('dense outlined').classes('w-full')
+            # Filtre avec un style plus discret
+            filter_input = ui.input(placeholder="Filtrer les compétences...").props('outlined dense').classes('w-full md:w-1/2 self-start')
             
             table = ui.table(
                 columns=[
-                    {'name': 'Classement', 'label': '#', 'field': 'Classement', 'align': 'left'},
-                    {'name': 'Compétence', 'label': 'Compétence', 'field': 'Compétence', 'sortable': True, 'align': 'left'},
-                    {'name': 'Fréquence', 'label': 'Fréquence', 'field': 'Fréquence', 'sortable': True, 'align': 'left'},
+                    {'name': 'Classement', 'label': '#', 'field': 'Classement', 'align': 'left', 'sortable': False},
+                    {'name': 'Compétence', 'label': 'Compétence', 'field': 'Compétence', 'align': 'left', 'sortable': False},
+                    {'name': 'Fréquence', 'label': 'Fréquence', 'field': 'Fréquence', 'align': 'left', 'sortable': False},
                 ],
                 rows=df_skills.to_dict('records'),
                 row_key='Compétence'
             ).props('flat bordered')
             
-            # Rend le tableau scrollable et limite l'affichage initial
             table.style('max-height: 50vh;')
             table.props('pagination={"rowsPerPage": 10}')
-            
             table.bind_filter_from(filter_input, 'value')
 
 async def run_analysis_logic(force_refresh: bool = False):
@@ -99,11 +92,7 @@ async def run_analysis_logic(force_refresh: bool = False):
 
     job_title = job_input.value
     num_offers = offers_select.value
-    cache_key = f"{job_title.lower().strip()}@{num_offers}"
     
-    if force_refresh:
-        await run.io_bound(delete_from_cache, cache_key)
-
     results_container.clear()
     log_view.clear()
     
@@ -125,7 +114,6 @@ async def run_analysis_logic(force_refresh: bool = False):
         if results is None:
             raise ValueError("Aucune offre ou compétence trouvée.")
         
-        # Le nombre d'offres n'est plus passé séparément
         display_results(results_container, results, job_title)
 
     except Exception as e:
@@ -133,11 +121,6 @@ async def run_analysis_logic(force_refresh: bool = False):
         results_container.clear()
         with results_container:
             ui.label(f"Erreur : {e}").classes('text-negative')
-
-async def refresh_analysis(job_title_to_refresh: str, num_offers_to_refresh: int):
-    job_input.value = job_title_to_refresh
-    offers_select.value = num_offers_to_refresh
-    await run_analysis_logic(force_refresh=True)
 
 async def handle_flush_cache():
     success = await run.io_bound(flush_all_cache)
@@ -151,31 +134,30 @@ async def handle_flush_cache():
 def main_page():
     global job_input, offers_select, results_container, log_view
     
+    app.add_static_files('/assets', 'assets')
     ui.query('body').style('background-color: #f8fafc;')
 
-    # En-tête avec liens nettoyés et responsive
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-between'):
+            # Logo toujours visible
             ui.image('/assets/SkillScope.svg').classes('w-32 md:w-40')
             with ui.row().classes('items-center'):
                 ui.link('Portfolio', 'https://portfolio-hamza-kachmir.vercel.app/', new_tab=True).classes('text-gray-600 hover:text-blue-700').style('text-decoration: none;')
                 ui.link('LinkedIn', 'https://www.linkedin.com/in/hamza-kachmir/', new_tab=True).classes('ml-4 text-gray-600 hover:text-blue-700').style('text-decoration: none;')
 
-    # Conteneur principal responsive
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
         ui.markdown("## Analysez les compétences clés d'un métier").classes('text-2xl md:text-3xl text-center font-light')
         ui.markdown("_Données **France Travail** analysées par **Google Gemini**._").classes('text-center text-gray-500 mb-6')
 
-        # Zone de recherche responsive
-        with ui.row().classes('w-full max-w-lg items-stretch gap-2'):
-            job_input = ui.input(placeholder="Ex: Ingénieur Data...").props('outlined').classes('flex-grow')
-            offers_select = ui.select({50: '50', 100: '100', 150: '150'}, value=100, label='Offres').props('outlined')
+        # NOUVEAU: Conteneur de recherche entièrement responsif
+        with ui.row().classes('w-full max-w-lg items-stretch gap-2 flex-wrap sm:flex-nowrap'):
+            job_input = ui.input(placeholder="Ex: Pâtissier, Ingénieur Data...").props('outlined').classes('grow w-full sm:w-auto')
+            offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('grow w-full sm:w-auto')
         
         launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary size=lg').classes('w-full max-w-lg')
         
         results_container = ui.column().classes('w-full mt-6')
         
-        # Section des logs améliorée
         with ui.expansion("Logs et gestion du cache", icon='o_code').classes('w-full mt-8 bg-gray-50 rounded-lg'):
             with ui.row().classes('w-full items-center justify-between p-2'):
                 ui.label("Activité du processus").classes('text-gray-600')
@@ -185,5 +167,6 @@ def main_page():
     job_input.props('clearable')
     launch_button.bind_enabled_from(job_input, 'value', backward=lambda v: bool(v))
 
+# Port pour Render
 port = int(os.environ.get('PORT', 10000))
 ui.run(host='0.0.0.0', port=port, title='SkillScope | Analyse de compétences')
