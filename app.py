@@ -128,8 +128,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
             ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
 
-        from nicegui.events import ValueChangeEvent
-
         page_info_label = ui.label().classes('text-center text-sm text-gray-600')
 
         pagination_state = {'page': 1, 'rows_per_page': 10}
