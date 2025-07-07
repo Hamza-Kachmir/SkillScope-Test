@@ -17,13 +17,13 @@ job_input = None
 launch_button = None
 results_container = None
 log_view = None
+all_log_messages = [] # Nouvelle variable pour stocker les messages de log
 
 
 @app.get('/download/excel')
 def download_excel_endpoint():
-    # Explicitly manage the slot context for NiceGUI storage access
-    with app.get_slot_stack()[0]:
-        df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
+    # Accéder directement à app.latest_df qui est défini dans display_results
+    df = getattr(app, 'latest_df', None)
     
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
@@ -37,9 +37,8 @@ def download_excel_endpoint():
 
 @app.get('/download/csv')
 def download_csv_endpoint():
-    # Explicitly manage the slot context for NiceGUI storage access
-    with app.get_slot_stack()[0]:
-        df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
+    # Accéder directement à app.latest_df qui est défini dans display_results
+    df = getattr(app, 'latest_df', None)
         
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
@@ -58,13 +57,16 @@ def debug_endpoint():
 
 
 class UiLogHandler(logging.Handler):
-    def __init__(self, log_element: ui.log):
+    def __init__(self, log_element: ui.log, log_messages_list: list):
         super().__init__()
         self.log_element = log_element
+        self.log_messages_list = log_messages_list # Référence à la liste globale des messages
         self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
     def emit(self, record):
         try:
             msg = self.format(record)
+            self.log_messages_list.append(msg) # Ajouter le message à la liste
             self.log_element.push(msg)
         except Exception as e:
             print(f"Error in UiLogHandler: {e}")
@@ -95,8 +97,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
     try:
-        app.latest_df = df
-        app.storage.client['latest_df'] = df
+        app.latest_df = df # Stocker le DataFrame directement sur l'objet app
+        # app.storage.client['latest_df'] = df # Cette ligne n'est plus nécessaire si on utilise getattr(app, 'latest_df', None)
         logger.info(f"✅ Résultats enregistrés : {len(df)} lignes dans latest_df.")
     except Exception as e:
         logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
@@ -168,7 +170,7 @@ async def run_analysis_logic(force_refresh: bool = False):
 
 @ui.page('/')
 def main_page():
-    global job_input, launch_button, results_container, log_view
+    global job_input, launch_button, results_container, log_view, all_log_messages # Ajout de all_log_messages
     
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     app.add_static_files('/assets', 'assets')
@@ -209,11 +211,12 @@ def main_page():
                           on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
                           color='red-6', icon='o_delete_forever').classes('mt-2')
                 
-                # New button to copy logs to clipboard
-                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText({log_view.text.replace("`", "`")})'), icon='o_content_copy').classes('mt-2')
+                # Bouton pour copier les logs
+                # On utilise 'all_log_messages' pour obtenir le texte complet
+                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
 
 
-            handler = UiLogHandler(log_view)
+            handler = UiLogHandler(log_view, all_log_messages) # Passer la liste aux logs
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
             logger.handlers.clear()
