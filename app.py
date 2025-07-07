@@ -21,26 +21,35 @@ log_view = None
 
 @app.get('/download/excel')
 def download_excel_endpoint():
-    df = getattr(app, 'latest_df', None)
+    df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Resultats')
-
+    
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
 @app.get('/download/csv')
 def download_csv_endpoint():
-    df = getattr(app, 'latest_df', None)
+    df = app.storage.client.get('latest_df') or getattr(app, 'latest_df', None)
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
-
+        
     csv_data = df.to_csv(index=False).encode('utf-8')
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
     return Response(content=csv_data, media_type='text/csv', headers=headers)
+
+@app.get('/debug')
+def debug_endpoint():
+    df = getattr(app, 'latest_df', None)
+    if df is not None:
+        return {'status': 'OK', 'rows': len(df)}
+    else:
+        return {'status': 'NO DF'}
+
 
 class UiLogHandler(logging.Handler):
     def __init__(self, log_element: ui.log):
@@ -48,13 +57,19 @@ class UiLogHandler(logging.Handler):
         self.log_element = log_element
         self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     def emit(self, record):
-        try: msg = self.format(record); self.log_element.push(msg)
-        except Exception as e: print(f"Error in UiLogHandler: {e}")
+        try:
+            msg = self.format(record)
+            self.log_element.push(msg)
+        except Exception as e:
+            print(f"Error in UiLogHandler: {e}")
+
 
 def format_skill_name(skill: str) -> str:
     known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
-    if skill.lower() in known_acronyms: return skill.upper()
+    if skill.lower() in known_acronyms:
+        return skill.upper()
     return skill.capitalize()
+
 
 def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
@@ -63,6 +78,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
     actual_offers = results_dict.get('actual_offers_count', 0)
+
     if not skills_data:
         logger.warning("Affichage des résultats : Aucune donnée de compétence à afficher.")
         with container:
@@ -72,7 +88,12 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
 
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
-    app.storage.client['latest_df'] = df
+    try:
+        app.latest_df = df
+        app.storage.client['latest_df'] = df
+        logger.info(f"✅ Résultats enregistrés : {len(df)} lignes dans latest_df.")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
 
     with container:
         with ui.row().classes('w-full items-baseline'):
@@ -106,6 +127,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             table.props('pagination={"rowsPerPage": 10}')
             table.bind_filter_from(filter_input, 'value')
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
+
 
 async def run_analysis_logic(force_refresh: bool = False):
     logger = logging.getLogger()
@@ -164,13 +186,13 @@ def main_page():
         results_container = ui.column().classes('w-full mt-6')
         
         with ui.column().classes('w-full items-center mt-8 pt-6'):
-             ui.html(f'''
+            ui.html(f'''
                 <p style="margin: 0; font-size: 0.875rem; color: #6b7280;">
                     <b style="color: black;">Développé par</b>
                     <span style="color: #f9b15c; font-weight: bold;"> Hamza Kachmir</span>
                 </p>
             ''')
-             with ui.row().classes('gap-4 mt-2'):
+            with ui.row().classes('gap-4 mt-2'):
                 ui.html(f'<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
                 ui.html(f'<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
 
