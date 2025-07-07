@@ -1,17 +1,16 @@
-# FICHIER : app.py (Version simplifiée sans sélection du nombre d'offres)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
 import os
 import sys
 
-# Configuration du chemin
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
 from pipeline import get_skills_for_job
-from src.cache_manager import delete_from_cache, flush_all_cache
+from src.cache_manager import flush_all_cache
 
-# Variables globales
+NB_OFFERS_TO_ANALYZE = 100
+
 job_input = None
 launch_button = None
 results_container = None
@@ -31,7 +30,7 @@ def format_skill_name(skill: str) -> str:
     if skill.lower() in known_acronyms: return skill.upper()
     return skill.capitalize()
 
-def display_results(container: ui.column, results_dict: dict):
+def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
     logger.info("Affichage des résultats : Début de la fonction display_results.")
     container.clear()
@@ -46,7 +45,10 @@ def display_results(container: ui.column, results_dict: dict):
         return
 
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
-    
+    df = pd.DataFrame(formatted_skills)
+    clean_job_title = "".join(c if c.isalnum() else "_" for c in job_title)
+
+
     with container:
         with ui.row().classes('w-full items-baseline'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
@@ -61,6 +63,20 @@ def display_results(container: ui.column, results_dict: dict):
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
         
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
+        
+        with ui.row().classes('w-full justify-end gap-2 mb-2'):
+            ui.button('Exporter en Excel', on_click=lambda: ui.download(
+                content=df.to_excel(index=False).encode('utf-8'),
+                filename=f'skillscope_{clean_job_title}.xlsx',
+                media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ), icon='o_download', color='green').props('dense')
+
+            ui.button('Exporter en CSV', on_click=lambda: ui.download(
+                content=df.to_csv(index=False).encode('utf-8'),
+                filename=f'skillscope_{clean_job_title}.csv',
+                media_type='text/csv'
+            ), icon='o_download', color='blue-grey').props('dense')
+
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
             table = ui.table(
@@ -91,14 +107,13 @@ async def run_analysis_logic(force_refresh: bool = False):
                 ui.label("Analyse en cours...").classes('text-gray-600 mt-2')
 
         job_value = job_input.value
-        # FIX: Le nombre d'offres est maintenant fixé à 150
-        offers_value = 100
-        logger.info(f"Appel du pipeline pour '{job_value}' avec {offers_value} offres (valeur fixe).")
         
-        results = await get_skills_for_job(job_value, offers_value, logger)
+        logger.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
+        
+        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
         
         if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
-        display_results(results_container, results)
+        display_results(results_container, results, job_value)
         
     except Exception as e:
         logger.critical(f"ERREUR CRITIQUE : {e}")
@@ -124,7 +139,6 @@ def main_page():
         with ui.row():
             ui.html("<i>Actuellement basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
-        # FIX: Suppression du sélecteur d'offres pour simplifier
         with ui.row().classes('w-full max-w-lg items-stretch'):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-full')
             job_input.style('font-size: 16px;')

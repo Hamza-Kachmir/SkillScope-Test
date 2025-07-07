@@ -1,4 +1,3 @@
-import requests
 import aiohttp
 import logging
 import os
@@ -20,7 +19,7 @@ class FranceTravailClient:
             self.logger.critical("Les variables d'environnement FT_CLIENT_ID et FT_CLIENT_SECRET ne sont pas définies !")
             raise ValueError("Configuration de l'API manquante sur le serveur.")
 
-    def _get_access_token(self) -> bool:
+    async def _get_access_token(self) -> bool:
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
         data = {
             'grant_type': 'client_credentials',
@@ -30,15 +29,16 @@ class FranceTravailClient:
         }
         try:
             self.logger.info("France Travail : Demande d'un nouveau token d'accès...")
-            response = requests.post(AUTH_URL, headers=headers, data=data, timeout=10)
-            response.raise_for_status()
-            token_data = response.json()
-            self._access_token = token_data['access_token']
-            expires_in = token_data.get('expires_in', 3600)
-            self._token_expiry_time = datetime.now() + timedelta(seconds=expires_in - 60)
-            self.logger.info("France Travail : Token d'accès obtenu avec succès.")
-            return True
-        except requests.exceptions.RequestException as e:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(AUTH_URL, headers=headers, data=data, timeout=10) as response:
+                    response.raise_for_status()
+                    token_data = await response.json()
+                    self._access_token = token_data['access_token']
+                    expires_in = token_data.get('expires_in', 3600)
+                    self._token_expiry_time = datetime.now() + timedelta(seconds=expires_in - 60)
+                    self.logger.info("France Travail : Token d'accès obtenu avec succès.")
+                    return True
+        except aiohttp.ClientError as e:
             self.logger.critical(f"France Travail : Échec de l'obtention du token. {e}")
             return False
 
@@ -47,7 +47,7 @@ class FranceTravailClient:
 
     async def search_offers_async(self, search_term: str, max_offers: int = 150) -> List[Dict]:
         if not self._is_token_valid():
-            if not self._get_access_token():
+            if not await self._get_access_token():
                 return []
         
         headers = {'Authorization': f'Bearer {self._access_token}'}

@@ -1,7 +1,7 @@
 nicegui
 pandas
 requests
-numpy
 google-generativeai
 aiohttp
 redis
+openpyxl

@@ -4,38 +4,39 @@ import logging
 import json
 import os
 import asyncio
-import re 
 from typing import Dict, Any, List
-from collections import defaultdict
 
-# --- Configuration Gemini ---
 MODEL_NAME = 'gemini-1.5-flash-latest'
 
-# --- PROMPT FORTEMENT AMÉLIORÉ ---
 PROMPT_COMPETENCES = """
-TA MISSION : Tu es un système expert en recrutement et en analyse sémantique pour le marché du travail français. Ton rôle est d'analyser des descriptions de postes pour en extraire les compétences techniques et le niveau d'études le plus pertinent.
+MISSION : Tu es un système expert en recrutement et en analyse sémantique pour le marché du travail français. Ton rôle est d'analyser méticuleusement des descriptions de postes pour en extraire les compétences techniques et le niveau d'études requis le plus pertinent.
 
-CONTEXTE FOURNI :
-- Titre du Poste Principal : `{titre_propre}`
+## RÈGLES D'EXTRACTION (STRICTES ET IMPÉRATIVES)
 
-RÈGLES STRICTES ET IMPÉRATIVES :
-1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON avec une seule clé : `"extracted_data"`, contenant une liste d'objets.
-2.  **STRUCTURE PAR DESCRIPTION** : Chaque objet dans `"extracted_data"` doit avoir trois clés : `"index"`, `"skills"`, `"education_level"`.
-3.  **EXTRACTION DU NIVEAU D'ÉTUDES (RÈGLE CRUCIALE)** :
-    - Ton objectif est d'identifier le **niveau d'études le plus courant et réaliste** pour accéder à ce type de poste, pas nécessairement le plus élevé mentionné.
-    - **Analyse comme un recruteur** : Si une annonce pour "Développeur Web" demande un "Bac+5", mais que le standard du marché est "Bac+2/Bac+3", tu dois privilégier "Bac+2 / BTS". Fais preuve de jugement.
-    - **Exemples de référence** :
-        - Pour "Pâtissier", "Boulanger", "Cuisinier" -> le résultat doit être "CAP / BEP".
-        - Pour "Développeur Web", "Technicien supérieur" -> "Bac+2 / BTS".
-        - Pour "Designer UX", "Chef de Projet junior" -> "Bac+3 / Licence".
-        - Pour "Ingénieur Data", "Data Scientist" -> "Bac+5 / Master".
-    - **Normalisation de la sortie** : Retourne une des valeurs suivantes : "CAP / BEP", "Bac+2 / BTS", "Bac+3 / Licence", "Bac+5 / Master", "Doctorat", "Non spécifié".
-    - Si aucun diplôme n'est mentionné ou déductible, retourne "Non spécifié".
-4.  **FILTRAGE DU BRUIT (COMPÉTENCES)** : Ignore le titre du poste, les diplômes, les métiers génériques et les termes comme "expérience", "maîtrise". Ils ne doivent JAMAIS apparaître dans la liste `"skills"`.
-5.  **NORMALISATION DE LA CASSE (COMPÉTENCES)** : Compétences en minuscules, sauf acronymes (SQL, AWS, ETL).
-6.  **NE RÉPONDS QU'AVEC DU JSON**.
+1.  **FORMAT DE SORTIE** : Tu dois retourner un unique objet JSON avec une seule clé : `"extracted_data"`, qui contient une liste d'objets. Chaque objet représente une description de poste.
 
-EXEMPLE DE SORTIE ATTENDUE (pour "Pâtissier" et "Ingénieur Data"):
+2.  **STRUCTURE PAR DESCRIPTION** : Chaque objet dans la liste `"extracted_data"` doit contenir trois clés : `"index"`, `"skills"`, `"education_level"`.
+
+3.  **EXTRACTION DES COMPÉTENCES ("skills")** :
+    * **NORMALISATION LOGIQUE** : Chaque compétence doit être retournée sous sa forme canonique et la plus correcte possible. Fais preuve de jugement pour la casse.
+    * **FILTRAGE DU BRUIT** : Ignore les termes génériques ("expérience", "maîtrise", "rigueur"), les soft skills, les diplômes et les titres de postes. Ils ne doivent JAMAIS apparaître dans la liste `skills`.
+
+4.  **EXTRACTION DU NIVEAU D'ÉTUDES ("education_level")** :
+    * **PRIORITÉ AU TEXTE** : Ta réponse DOIT se baser **en priorité absolue** sur les diplômes mentionnés dans les descriptions fournies.
+    * **LOGIQUE D'AGRÉGATION** : S'il y a plusieurs niveaux mentionnés (ex: Bac+2 et Bac+5), retourne le plus fréquent. S'il n'y a pas de majorité claire, retourne une fourchette réaliste (ex: "Bac+2 à Bac+5").
+    * **INFERENCE LIMITÉE** : N'infère un niveau standard du marché que si **AUCUN DIPLÔME** n'est mentionné dans le texte.
+    * **CATÉGORIES DE SORTIE** : Retourne **uniquement** une des valeurs suivantes : "CAP / BEP", "Bac", "Bac+2 / BTS", "Bac+3 / Licence", "Bac+5 / Master", "Doctorat", "Concours / Formation spécifique", "Non spécifié".
+
+## EXEMPLES DE NORMALISATION (À APPLIQUER SYSTÉMATIQUEMENT)
+- "power bi", "powerbi", "PowerBI" -> "Power BI"
+- "piton", "phyton" -> "Python"
+- "js", "javascript" -> "JavaScript"
+- "amazon web services", "a.w.s" -> "AWS"
+- "react js", "react.js" -> "React"
+- "sql server", "ssms" -> "SQL Server"
+- "csharp", "c#" -> "C#"
+
+## EXEMPLE DE SORTIE ATTENDUE
 ```json
 {{
   "extracted_data": [
@@ -46,23 +47,21 @@ EXEMPLE DE SORTIE ATTENDUE (pour "Pâtissier" et "Ingénieur Data"):
     }},
     {{
       "index": 1,
-      "skills": ["python", "sql", "aws", "etl", "spark"],
+      "skills": ["Python", "SQL", "AWS", "ETL", "Spark", "Power BI"],
       "education_level": "Bac+5 / Master"
+    }},
+    {{
+      "index": 2,
+      "skills": ["secourisme", "gestion du stress", "permis poids lourd"],
+      "education_level": "Concours / Formation spécifique"
     }}
   ]
 }}
-DESCRIPTIONS À ANALYSER (format "index: description"):
+DESCRIPTIONS À ANALYSER CI-DESSOUS (format "index: description"):
 {indexed_descriptions}
 """
-
-# Variable globale pour le modèle Gemini
 model = None
-
 def initialize_gemini():
-    """
-    Initialise le client Gemini en utilisant les identifiants de compte de service
-    définis dans la variable d'environnement GOOGLE_CREDENTIALS.
-    """
     global model
     if model:
         return True
@@ -83,20 +82,7 @@ def initialize_gemini():
     except Exception as e:
         logging.critical(f"Échec de l'initialisation de Gemini : {e}")
         return False
-
 async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) -> Dict[str, Any] | None:
-    """
-    Appelle l'API Gemini pour extraire les compétences et le niveau d'études
-    à partir d'une liste de descriptions de postes.
-
-    Args:
-        job_title (str): Le titre principal du poste.
-        descriptions (list[str]): Une liste de descriptions de postes à analyser.
-
-    Returns:
-        dict | None: Un dictionnaire JSON contenant les données extraites,
-                     ou None en cas d'erreur.
-    """
     if not model:
         if not initialize_gemini():
             return None
@@ -107,7 +93,6 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) ->
     logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
         response = await model.generate_content_async(prompt)
-        # Note: la clé principale est maintenant "extracted_data"
         skills_json = json.loads(response.text)
         logging.info("Réponse JSON de Gemini reçue et parsée avec succès pour un lot.")
         return skills_json
