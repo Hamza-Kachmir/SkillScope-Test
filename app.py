@@ -1,4 +1,4 @@
-# FICHIER : app.py (Version avec les dernières finitions ergonomiques et de design)
+# FICHIER : app.py (Version finale et aboutie)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -40,7 +40,9 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     actual_offers = results_dict.get('actual_offers_count', 0)
     
     if not skills_data:
-        # ... (code inchangé)
+        with container:
+            with ui.card().classes('w-full bg-yellow-100 p-4'):
+                ui.label("Aucune compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
         return
 
     for item in skills_data:
@@ -51,7 +53,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     df_skills.insert(0, 'Classement', range(1, len(df_skills) + 1))
     
     with container:
-        # FIX: Titre des résultats plus professionnel
         with ui.row().classes('w-full items-center'):
             ui.label(f"Synthèse des compétences pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
@@ -69,10 +70,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Filtrer les compétences...").props('outlined dense').classes('w-full')
             
-            # On ajoute une classe custom pour cibler le scrollbar en CSS
             table_container = ui.column().classes('w-full visible-scrollbar')
             with table_container:
-                # FIX: Le tableau prend toute la largeur de son conteneur
                 table = ui.table(
                     columns=[
                         {'name': 'Classement', 'label': '#', 'field': 'Classement', 'align': 'left', 'sortable': False},
@@ -88,7 +87,9 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 table.bind_filter_from(filter_input, 'value')
 
 async def run_analysis_logic(force_refresh: bool = False):
-    # ... (code inchangé)
+    # FIX: Désactivation (blur) de l'élément actif au lancement
+    ui.run_javascript('document.activeElement.blur()')
+
     if not all([job_input, offers_select, job_input.value, offers_select.value]): return
     job_title = job_input.value
     num_offers = offers_select.value
@@ -115,7 +116,6 @@ async def run_analysis_logic(force_refresh: bool = False):
         with results_container: ui.label(f"Erreur : {e}").classes('text-negative')
 
 async def handle_flush_cache():
-    # ... (code inchangé)
     success = await run.io_bound(flush_all_cache)
     if success: ui.notify('Le cache a été vidé.', color='positive'); results_container.clear()
     else: ui.notify('Erreur lors du vidage du cache.', color='negative')
@@ -126,37 +126,35 @@ def main_page():
     
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     
-    # FIX: CSS pour rendre le scrollbar visible sur mobile (WebKit/Chrome)
+    # FIX: CSS pour une barre de scroll plus large et visible sur mobile
     ui.add_css('''
         .visible-scrollbar::-webkit-scrollbar {
             -webkit-appearance: none;
-            width: 7px;
+            width: 12px;
         }
         .visible-scrollbar::-webkit-scrollbar-thumb {
-            border-radius: 4px;
-            background-color: rgba(0, 0, 0, .5);
-            box-shadow: 0 0 1px rgba(255, 255, 255, .5);
+            border-radius: 6px;
+            background-color: rgba(0, 0, 0, .6);
+            border: 2px solid #f8fafc; /* Ajoute un léger contour pour le contraste */
         }
     ''')
     
     app.add_static_files('/assets', 'assets')
     ui.query('body').style('background-color: #f8fafc;')
 
-    # FIX: Header avec logo centré et sans liens
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-center'):
             ui.image('/assets/SkillScope.svg').classes('w-32 md:w-40')
 
+    # Le footer est maintenant déplacé à la fin de cette colonne principale
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
         ui.markdown("## Analysez les compétences clés d'un métier").classes('text-2xl md:text-3xl text-center font-light')
         ui.markdown("_Données **France Travail** analysées par **Google Gemini**._").classes('text-center text-gray-500 mb-6')
 
         with ui.row().classes('w-full max-w-lg items-stretch gap-2 flex-wrap sm:flex-nowrap'):
-            # FIX: La propriété 'clearable' est de retour
             job_input = ui.input(placeholder="Ex: Ingénieur Data...").props('outlined clearable').classes('w-full sm:w-2/3')
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('w-full sm:w-1/3')
         
-        # FIX: Lancement de l'analyse avec la touche "Entrée"
         job_input.on('keydown.enter', lambda: run_analysis_logic(force_refresh=False))
         
         launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary size=lg').classes('w-full max-w-lg')
@@ -164,15 +162,13 @@ def main_page():
         results_container = ui.column().classes('w-full mt-6')
         
         with ui.expansion("Logs et gestion du cache", icon='o_code').classes('w-full mt-8 bg-gray-50 rounded-lg'):
-            # ... (code inchangé)
             with ui.row().classes('w-full items-center justify-between p-2'):
                 ui.label("Activité du processus").classes('text-gray-600')
                 ui.button('Vider le cache', on_click=handle_flush_cache, color='red').props('flat dense')
             log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs rounded-b-lg')
 
-    # FIX: Nouveau footer avec vos informations
-    with ui.footer(elevated=False).classes('bg-transparent'):
-        with ui.column().classes('w-full items-center p-4 gap-1'):
+        # FIX: Footer statique placé à la fin du contenu de la page
+        with ui.column().classes('w-full items-center mt-12 pt-6 border-t'):
             ui.label("Développé par Hamza Kachmir").classes('text-gray-500 text-sm')
             with ui.row():
                 ui.link('Portfolio', 'https://portfolio-hamza-kachmir.vercel.app/', new_tab=True).classes('text-gray-500 hover:text-blue-700').style('text-decoration: none;')
