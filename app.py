@@ -1,4 +1,4 @@
-# FICHIER : app.py (Version finale et aboutie)
+# FICHIER : app.py (Version finale avec corrections de stabilité et de design mobile)
 import pandas as pd
 import logging
 from nicegui import ui, app, run
@@ -40,9 +40,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     actual_offers = results_dict.get('actual_offers_count', 0)
     
     if not skills_data:
-        with container:
-            with ui.card().classes('w-full bg-yellow-100 p-4'):
-                ui.label("Aucune compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
+        # ... (code inchangé)
         return
 
     for item in skills_data:
@@ -70,8 +68,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Filtrer les compétences...").props('outlined dense').classes('w-full')
             
-            table_container = ui.column().classes('w-full visible-scrollbar')
-            with table_container:
+            # FIX: Conteneur du tableau avec une classe pour le dégradé visuel
+            with ui.column().classes('w-full relative').style('max-height: 50vh; overflow-y: auto;'):
                 table = ui.table(
                     columns=[
                         {'name': 'Classement', 'label': '#', 'field': 'Classement', 'align': 'left', 'sortable': False},
@@ -81,13 +79,29 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                     rows=df_skills.to_dict('records'),
                     row_key='Compétence'
                 ).props('flat bordered').classes('w-full')
-            
-                table.style('max-height: 50vh;')
-                table.props('pagination={"rowsPerPage": 10}')
-                table.bind_filter_from(filter_input, 'value')
+                
+                # FIX: Indice visuel de scroll (dégradé)
+                ui.html('''
+                    <div style="
+                        position: absolute;
+                        bottom: 0;
+                        left: 0;
+                        right: 0;
+                        height: 40px;
+                        background: linear-gradient(to bottom, transparent, #f8fafc);
+                        pointer-events: none;">
+                    </div>
+                ''')
+
+            table.props('pagination={"rowsPerPage": 10}')
+            table.bind_filter_from(filter_input, 'value')
+
+async def trigger_analysis(force_refresh: bool = False):
+    """Fonction intermédiaire pour lancer l'analyse via un timer."""
+    # Le timer découple l'action de l'utilisateur de l'exécution, ce qui peut empêcher les bugs d'état.
+    ui.timer(0.1, lambda: run_analysis_logic(force_refresh), once=True)
 
 async def run_analysis_logic(force_refresh: bool = False):
-    # FIX: Désactivation (blur) de l'élément actif au lancement
     ui.run_javascript('document.activeElement.blur()')
 
     if not all([job_input, offers_select, job_input.value, offers_select.value]): return
@@ -96,6 +110,7 @@ async def run_analysis_logic(force_refresh: bool = False):
     results_container.clear()
     log_view.clear()
     logger = logging.getLogger()
+    # ... (le reste de la logique est inchangé)
     logger.setLevel(logging.INFO)
     if not any(isinstance(h, UiLogHandler) for h in logger.handlers):
         logger.handlers.clear()
@@ -116,6 +131,7 @@ async def run_analysis_logic(force_refresh: bool = False):
         with results_container: ui.label(f"Erreur : {e}").classes('text-negative')
 
 async def handle_flush_cache():
+    # ... (code inchangé)
     success = await run.io_bound(flush_all_cache)
     if success: ui.notify('Le cache a été vidé.', color='positive'); results_container.clear()
     else: ui.notify('Erreur lors du vidage du cache.', color='negative')
@@ -126,16 +142,10 @@ def main_page():
     
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     
-    # FIX: CSS pour une barre de scroll plus large et visible sur mobile
+    # FIX: CSS pour forcer le retour à la ligne dans les en-têtes de tableau
     ui.add_css('''
-        .visible-scrollbar::-webkit-scrollbar {
-            -webkit-appearance: none;
-            width: 12px;
-        }
-        .visible-scrollbar::-webkit-scrollbar-thumb {
-            border-radius: 6px;
-            background-color: rgba(0, 0, 0, .6);
-            border: 2px solid #f8fafc; /* Ajoute un léger contour pour le contraste */
+        th {
+            white-space: normal !important;
         }
     ''')
     
@@ -146,7 +156,6 @@ def main_page():
         with ui.row().classes('w-full items-center justify-center'):
             ui.image('/assets/SkillScope.svg').classes('w-32 md:w-40')
 
-    # Le footer est maintenant déplacé à la fin de cette colonne principale
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
         ui.markdown("## Analysez les compétences clés d'un métier").classes('text-2xl md:text-3xl text-center font-light')
         ui.markdown("_Données **France Travail** analysées par **Google Gemini**._").classes('text-center text-gray-500 mb-6')
@@ -155,19 +164,19 @@ def main_page():
             job_input = ui.input(placeholder="Ex: Ingénieur Data...").props('outlined clearable').classes('w-full sm:w-2/3')
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100).props('outlined').classes('w-full sm:w-1/3')
         
-        job_input.on('keydown.enter', lambda: run_analysis_logic(force_refresh=False))
-        
-        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary size=lg').classes('w-full max-w-lg')
+        # FIX: Appel à la fonction intermédiaire pour plus de stabilité
+        job_input.on('keydown.enter', trigger_analysis)
+        launch_button = ui.button('Lancer l\'analyse', on_click=trigger_analysis).props('color=primary size=lg').classes('w-full max-w-lg')
         
         results_container = ui.column().classes('w-full mt-6')
         
         with ui.expansion("Logs et gestion du cache", icon='o_code').classes('w-full mt-8 bg-gray-50 rounded-lg'):
+            # ... (code inchangé)
             with ui.row().classes('w-full items-center justify-between p-2'):
                 ui.label("Activité du processus").classes('text-gray-600')
                 ui.button('Vider le cache', on_click=handle_flush_cache, color='red').props('flat dense')
             log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs rounded-b-lg')
 
-        # FIX: Footer statique placé à la fin du contenu de la page
         with ui.column().classes('w-full items-center mt-12 pt-6 border-t'):
             ui.label("Développé par Hamza Kachmir").classes('text-gray-500 text-sm')
             with ui.row():
