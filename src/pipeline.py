@@ -6,6 +6,7 @@ from collections import defaultdict
 from src.france_travail_api import FranceTravailClient
 from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
+# from src.normalization import get_canonical_form # Potentially use this if we need more normalization
 
 def chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
     """Divise une liste en sous-listes de taille chunk_size."""
@@ -42,22 +43,26 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
         logger.warning("Aucune description exploitable. Fin du processus.")
         return None
 
-    description_chunks = chunk_list(descriptions, 25)
+    # We send the descriptions in chunks to Gemini
+    description_chunks = chunk_list(descriptions, 25) # Max 25 descriptions per chunk for Gemini
     logger.info(f"Étape 3 : Division en {len(description_chunks)} lots pour analyse parallèle.")
     
     tasks = [extract_skills_with_gemini(job_title, chunk) for chunk in description_chunks]
     batch_results = await asyncio.gather(*tasks)
     
-    logger.info("Étape 4 : Fusion des résultats...")
+    logger.info("Étape 4 : Fusion et comptage des résultats...")
     final_frequencies = defaultdict(int)
-    for result in batch_results:
-        if result and 'skills' in result:
-            for item in result['skills']:
-                skill_name = item.get('skill')
-                frequency = item.get('frequency', 0)
-                if skill_name:
-                    normalized_skill = skill_name.strip().lower()
-                    final_frequencies[normalized_skill] += frequency
+    
+    # Process results from each Gemini batch
+    for result_batch in batch_results:
+        if result_batch and 'extracted_skills' in result_batch:
+            for description_skills_entry in result_batch['extracted_skills']:
+                # The 'index' from Gemini output is relative to the chunk.
+                # We care about the unique skills extracted per description.
+                for skill_name in description_skills_entry.get('skills', []):
+                    # Gemini is already normalizing case and handling acronyms based on the prompt.
+                    # We just need to count how many descriptions this unique skill appeared in.
+                    final_frequencies[skill_name] += 1 # Increment for each description it appeared in
     
     if not final_frequencies:
         logger.error("La fusion des résultats n'a produit aucune compétence. Fin du processus.")

@@ -4,45 +4,49 @@ import logging
 import json
 import os
 import asyncio
+import re # Import re for splitting
 from typing import Dict, Any, List
 from collections import defaultdict
 
-# --- Start of src/gemini_extractor.py content ---
-
 MODEL_NAME = 'gemini-1.5-flash-latest'
 
+# MODIFIED PROMPT
 PROMPT_COMPETENCES = """
-TA MISSION : Tu es un système expert en analyse sémantique. Ton rôle est d'analyser la compilation de descriptions de postes fournie, d'identifier TOUTES les compétences, et de compter leur fréquence.
+TA MISSION : Tu es un système expert en analyse sémantique. Ton rôle est d'analyser la liste de descriptions de postes fournie, d'identifier TOUTES les compétences pertinentes pour CHAQUE DESCRIPTION, et de les lister.
 
 CONTEXTE FOURNI :
 - Titre du Poste Principal : `{titre_propre}`
 
 RÈGLES STRICTES ET IMPÉRATIVES :
-1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON avec une seule clé : `"skills"`, contenant une liste d'objets.
-2.  **STRUCTURE DE L'OBJET COMPÉTENCE** : Chaque objet doit avoir deux clés :
-    - `"skill"`: Le nom de la compétence.
-    - `"frequency"`: Un nombre entier représentant sa fréquence.
+1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON avec une seule clé : `"extracted_skills"`, contenant une liste d'objets. Chaque objet de cette liste représente une description analysée.
+2.  **STRUCTURE DE L'OBJET DE CHAQUE DESCRIPTION** : Chaque objet dans `"extracted_skills"` doit avoir deux clés :
+    - `"index"`: L'index numérique de la description dans la liste fournie (commence à 0).
+    - `"skills"`: Une liste de chaînes de caractères, où chaque chaîne est une compétence unique trouvée dans cette description.
 3.  **FILTRAGE DU BRUIT (RÈGLE CRUCIALE)** :
-    - **IGNORE IMPÉRATIVEMENT** le titre du poste principal (`{titre_propre}`) ainsi ainsi que ses variantes directes (ex: "Ingénieur de données", "Data Engineering"). Ils ne doivent JAMAIS apparaître dans la liste finale des compétences.
-    - IGNORE les diplômes ("Bac+5"), les noms de métiers génériques ("technicien", "ouvrier").
-4.  **NORMALISATION DE LA CASSE (RÈGLE CRUCIALE)** :
-    - **Toutes les compétences retournées doivent être en minuscules**, sauf les acronymes qui doivent rester en majuscules (ex: "sql", "python", "aws", "etl", mais "anglais", "gestion de projet").
-    - Regroupe les synonymes. "UI/UX Design" et "Design UX/UI" doivent être comptés ensemble sous un seul nom.
-5.  **COMPTAGE EXHAUSTIF** : Tu dois compter chaque mention. Si "Python" apparaît dans 30 offres, sa fréquence doit être de 30.
-6.  **TRI** : La liste finale doit être triée par fréquence, de la plus élevée à la plus basse.
+    - **IGNORE IMPÉRATIVEMENT** le titre du poste principal (`{titre_propre}`) ainsi que ses variantes directes (ex: "Ingénieur de données", "Data Engineering"). Ils ne doivent JAMAIS apparaître dans la liste finale des compétences.
+    - IGNORE les diplômes ("Bac+5", "Master"), les noms de métiers génériques ("technicien", "ouvrier", "manager"), et les termes génériques comme "expérience", "connaissance", "maîtrise", "compétences", "technologies".
+4.  **EXTRACTION MULTIPLE D'UNE SEULE PHRASE** : Si une phrase liste plusieurs compétences (ex: "Python, Java, Scala" ou "Adobe (Photoshop, Illustrator)"), **sépare-les en compétences individuelles distinctes**. Pour "Adobe (Photoshop, Illustrator)", extrait "Photoshop" et "Illustrator".
+5.  **NORMALISATION DE LA CASSE** :
+    - **Toutes les compétences retournées doivent être en minuscules**, sauf les acronymes qui doivent rester en majuscules (ex: "SQL", "Python", "AWS", "ETL", mais "anglais", "gestion de projet"). C'est à toi de reconnaître les acronymes courants.
+6.  **DÉDUPLICATION PAR DESCRIPTION** : Pour chaque description, liste chaque compétence trouvée **une seule fois**, même si elle est mentionnée plusieurs fois dans cette description.
+7.  **NE RÉPONDS QU'AVEC DU JSON**.
 
-EXEMPLE DE SORTIE ATTENDUE :
+EXEMPLE DE SORTIE ATTENDUE (pour deux descriptions) :
 ```json
 {{
-  "skills": [
-    {{ "skill": "sql", "frequency": 45 }},
-    {{ "skill": "python", "frequency": 42 }},
-    {{ "skill": "gestion de projet", "frequency": 25 }},
-    {{ "skill": "anglais", "frequency": 18 }}
+  "extracted_skills": [
+    {{
+      "index": 0,
+      "skills": ["sql", "python", "aws", "gestion de projet"]
+    }},
+    {{
+      "index": 1,
+      "skills": ["java", "spring", "microservices", "anglais"]
+    }}
   ]
 }}
-DESCRIPTIONS À ANALYSER :
-{mega_description}
+DESCRIPTIONS À ANALYSER (format "index: description"):
+{indexed_descriptions}
 """
 
 model = None
@@ -74,8 +78,9 @@ async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) ->
         if not initialize_gemini():
             return None
 
-    mega_description = "\n\n---\n\n".join(descriptions)
-    prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, mega_description=mega_description)
+    # We need to send indexed descriptions for Gemini to return indexed skills
+    indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
+    prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, indexed_descriptions=indexed_descriptions)
 
     logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
@@ -85,7 +90,7 @@ async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) ->
         return skills_json
         
     except json.JSONDecodeError as e:
-        logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}")
+        logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}. Réponse brute: {response.text}")
         return None
     except Exception as e:
         logging.error(f"Erreur lors de l'appel à l'API Gemini : {e}")
