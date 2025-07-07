@@ -4,44 +4,47 @@ import logging
 import json
 import os
 import asyncio
-import re # Import re for splitting
+import re
 from typing import Dict, Any, List
 from collections import defaultdict
 
+# --- Configuration Gemini ---
 MODEL_NAME = 'gemini-1.5-flash-latest'
 
-# MODIFIED PROMPT
+# --- PROMPT AMÉLIORÉ ---
 PROMPT_COMPETENCES = """
-TA MISSION : Tu es un système expert en analyse sémantique. Ton rôle est d'analyser la liste de descriptions de postes fournie, d'identifier TOUTES les compétences pertinentes pour CHAQUE DESCRIPTION, et de les lister.
+TA MISSION : Tu es un système expert en analyse sémantique. Ton rôle est d'analyser une liste de descriptions de postes, d'identifier les compétences et le niveau d'études requis pour CHAQUE description, et de structurer le tout en JSON.
 
 CONTEXTE FOURNI :
 - Titre du Poste Principal : `{titre_propre}`
 
 RÈGLES STRICTES ET IMPÉRATIVES :
-1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON avec une seule clé : `"extracted_skills"`, contenant une liste d'objets. Chaque objet de cette liste représente une description analysée.
-2.  **STRUCTURE DE L'OBJET DE CHAQUE DESCRIPTION** : Chaque objet dans `"extracted_skills"` doit avoir deux clés :
-    - `"index"`: L'index numérique de la description dans la liste fournie (commence à 0).
-    - `"skills"`: Une liste de chaînes de caractères, où chaque chaîne est une compétence unique trouvée dans cette description.
-3.  **FILTRAGE DU BRUIT (RÈGLE CRUCIALE)** :
-    - **IGNORE IMPÉRATIVEMENT** le titre du poste principal (`{titre_propre}`) ainsi que ses variantes directes (ex: "Ingénieur de données", "Data Engineering"). Ils ne doivent JAMAIS apparaître dans la liste finale des compétences.
-    - IGNORE les diplômes ("Bac+5", "Master"), les noms de métiers génériques ("technicien", "ouvrier", "manager"), et les termes génériques comme "expérience", "connaissance", "maîtrise", "compétences", "technologies".
-4.  **EXTRACTION MULTIPLE D'UNE SEULE PHRASE** : Si une phrase liste plusieurs compétences (ex: "Python, Java, Scala" ou "Adobe (Photoshop, Illustrator)"), **sépare-les en compétences individuelles distinctes**. Pour "Adobe (Photoshop, Illustrator)", extrait "Photoshop" et "Illustrator".
-5.  **NORMALISATION DE LA CASSE** :
-    - **Toutes les compétences retournées doivent être en minuscules**, sauf les acronymes qui doivent rester en majuscules (ex: "SQL", "Python", "AWS", "ETL", mais "anglais", "gestion de projet"). C'est à toi de reconnaître les acronymes courants.
-6.  **DÉDUPLICATION PAR DESCRIPTION** : Pour chaque description, liste chaque compétence trouvée **une seule fois**, même si elle est mentionnée plusieurs fois dans cette description.
+1.  **FORMAT JSON FINAL** : Le résultat doit être un unique objet JSON avec une seule clé : `"extracted_data"`, contenant une liste d'objets.
+2.  **STRUCTURE DE L'OBJET DE CHAQUE DESCRIPTION** : Chaque objet dans `"extracted_data"` doit avoir trois clés :
+    - `"index"`: L'index numérique de la description (commence à 0).
+    - `"skills"`: Une liste de chaînes de caractères (compétences uniques trouvées).
+    - `"education_level"`: Une chaîne de caractères représentant le plus haut niveau d'études mentionné (ex: "Bac+2", "Bac+3", "Master", "Bac+5", "Non spécifié"). Si aucun diplôme n'est mentionné, retourne "Non spécifié".
+3.  **FILTRAGE DU BRUIT (COMPÉTENCES)** :
+    - **IGNORE IMPÉRATIVEMENT** le titre du poste (`{titre_propre}`), ses variantes, les diplômes ("Bac+5"), les métiers génériques ("manager"), et les termes comme "expérience", "maîtrise", "technologies". Ils ne doivent JAMAIS apparaître dans la liste `"skills"`.
+4.  **EXTRACTION MULTIPLE** : Si une phrase liste plusieurs compétences (ex: "Python, Java, Scala"), sépare-les.
+5.  **NORMALISATION DE LA CASSE (COMPÉTENCES)** :
+    - Les compétences doivent être en minuscules, sauf les acronymes courants (ex: "SQL", "AWS", "ETL", mais "anglais").
+6.  **DÉDUPLICATION PAR DESCRIPTION** : Liste chaque compétence unique une seule fois par description.
 7.  **NE RÉPONDS QU'AVEC DU JSON**.
 
 EXEMPLE DE SORTIE ATTENDUE (pour deux descriptions) :
 ```json
 {{
-  "extracted_skills": [
+  "extracted_data": [
     {{
       "index": 0,
-      "skills": ["sql", "python", "aws", "gestion de projet"]
+      "skills": ["sql", "python", "aws", "gestion de projet"],
+      "education_level": "Bac+5"
     }},
     {{
       "index": 1,
-      "skills": ["java", "spring", "microservices", "anglais"]
+      "skills": ["java", "spring", "microservices", "anglais"],
+      "education_level": "Bac+3"
     }}
   ]
 }}
@@ -49,9 +52,14 @@ DESCRIPTIONS À ANALYSER (format "index: description"):
 {indexed_descriptions}
 """
 
+# Variable globale pour le modèle Gemini
 model = None
 
 def initialize_gemini():
+    """
+    Initialise le client Gemini en utilisant les identifiants de compte de service
+    définis dans la variable d'environnement GOOGLE_CREDENTIALS.
+    """
     global model
     if model:
         return True
@@ -73,18 +81,30 @@ def initialize_gemini():
         logging.critical(f"Échec de l'initialisation de Gemini : {e}")
         return False
 
-async def extract_skills_with_gemini(job_title: str, descriptions: list[str]) -> dict | None:
+async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) -> Dict[str, Any] | None:
+    """
+    Appelle l'API Gemini pour extraire les compétences et le niveau d'études
+    à partir d'une liste de descriptions de postes.
+
+    Args:
+        job_title (str): Le titre principal du poste.
+        descriptions (list[str]): Une liste de descriptions de postes à analyser.
+
+    Returns:
+        dict | None: Un dictionnaire JSON contenant les données extraites,
+                     ou None en cas d'erreur.
+    """
     if not model:
         if not initialize_gemini():
             return None
 
-    # We need to send indexed descriptions for Gemini to return indexed skills
-    indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
+    indexed_descriptions = "\\n---\\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
     prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, indexed_descriptions=indexed_descriptions)
 
     logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
         response = await model.generate_content_async(prompt)
+        # Note: la clé principale est maintenant "extracted_data"
         skills_json = json.loads(response.text)
         logging.info("Réponse JSON de Gemini reçue et parsée avec succès pour un lot.")
         return skills_json
