@@ -34,7 +34,8 @@ def download_excel_endpoint():
             []
         ])
         header_info.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0)
-        df.to_excel(writer, index=False, sheet_name='Resultats', startrow=3)
+        # Assurez-vous que le df exporté n'a pas son propre index dans le fichier Excel
+        df.to_excel(writer, index=False, sheet_name='Resultats', startrow=len(header_info)-1)
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
@@ -46,10 +47,11 @@ def download_csv_endpoint():
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
     header_lines = [
-        f"Métier Analysé: {job_title}",
-        f"Offres Analysées: {actual_offers_count}",
+        f"Metier Analyse: {job_title}",
+        f"Offres Analysees: {actual_offers_count}",
         ""
     ]
+    # Assurez-vous que le df exporté n'a pas son propre index dans le fichier CSV
     csv_data = "\n".join(header_lines) + "\n" + df.to_csv(index=False)
     csv_data_bytes = csv_data.encode('utf-8')
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
@@ -87,52 +89,74 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
     logger.info("Affichage des résultats : Début de la fonction display_results.")
     container.clear()
+    
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
     actual_offers = results_dict.get('actual_offers_count', 0)
+    
     if not skills_data:
         logger.warning("Affichage des résultats : Aucune offre ou compétence pertinente n'a pu être extraite.")
         with container:
             with ui.card().classes('w-full bg-yellow-100 p-4'):
                 ui.label("Aucune offre ou compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
         return
-    formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
-    df = pd.DataFrame(formatted_skills)
+
+    # --- DÉBUT : Logique de l'ancien code pour préparer les données du tableau ---
+    for item in skills_data:
+        item['skill'] = format_skill_name(item['skill'])
+
+    df_skills = pd.DataFrame(skills_data)
+    df_skills.rename(columns={'skill': 'Compétence', 'frequency': 'Fréquence'}, inplace=True)
+    df_skills.insert(0, 'Classement', range(1, len(df_skills) + 1))
+    # --- FIN : Logique de l'ancien code ---
+
+    # Enregistrement du DataFrame pour les exports (partie conservée du nouveau code)
     try:
-        app.latest_df = df
+        app.latest_df = df_skills
         app.latest_job_title = job_title
         app.latest_actual_offers_count = actual_offers
-        logger.info(f"✅ Résultats enregistrés : {len(df)} lignes dans latest_df.")
+        logger.info(f"✅ Résultats enregistrés : {len(df_skills)} lignes dans latest_df.")
     except Exception as e:
         logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
+
     with container:
+        # Cartes de synthèse (conservées du nouveau code)
         with ui.row().classes('w-full items-baseline'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
-                ui.label(formatted_skills[0]['competence']).classes('text-2xl font-bold text-center text-blue-600')
+                ui.label(df_skills.iloc[0]['Compétence']).classes('text-2xl font-bold text-center text-blue-600')
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
-        ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
+
+        # --- DÉBUT : Tableau de classement de l'ancien code ---
+        ui.label("Classement détaillé des compétences").classes('text-xl font-bold mt-8 mb-2')
+        
+        # Boutons d'export (conservés du nouveau code pour la fonctionnalité)
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
             ui.link('Exporter en Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
             ui.link('Exporter en CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
+
         with ui.column().classes('w-full gap-2'):
-            filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
-            with ui.column().classes('w-full').style('max-height: 400px; overflow-y: scroll; overflow-x: hidden; border: 1px solid #e0e0e0; border-radius: 8px;'):
-                table = ui.table(
-                    columns=[
-                        {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
-                        {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
-                        {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
-                    ],
-                    rows=formatted_skills, row_key='competence'
-                ).props('flat bordered').classes('w-full')
-                table.props('pagination={"rowsPerPage": 10}')
-                table.bind_filter_from(filter_input, 'value')
+            filter_input = ui.input(placeholder="Filtrer les compétences... (ex: Python)").props('outlined dense').classes('w-full')
+            
+            table = ui.table(
+                columns=[
+                    {'name': 'Classement', 'label': '#', 'field': 'Classement', 'align': 'left'},
+                    {'name': 'Compétence', 'label': 'Compétence', 'field': 'Compétence', 'align': 'left', 'sortable': True},
+                    {'name': 'Fréquence', 'label': 'Fréquence', 'field': 'Fréquence', 'align': 'left', 'sortable': True},
+                ],
+                rows=df_skills.to_dict('records'),
+                row_key='Compétence'
+            ).props('flat bordered virtual-scroll').classes('w-full').style('height: 50vh;')
+            
+            table.props('pagination={"rowsPerPage": 10}')
+            table.bind_filter_from(filter_input, 'value')
+        # --- FIN : Tableau de classement de l'ancien code ---
+            
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
 async def run_analysis_logic(force_refresh: bool = False):
