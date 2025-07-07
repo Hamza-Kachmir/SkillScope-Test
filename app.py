@@ -17,7 +17,7 @@ job_input = None
 launch_button = None
 results_container = None
 log_view = None
-all_log_messages = [] # Nouvelle variable pour stocker les messages de log
+all_log_messages = []
 
 
 @app.get('/download/excel')
@@ -31,16 +31,13 @@ def download_excel_endpoint():
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Créer un DataFrame pour les informations d'en-tête
         header_info = pd.DataFrame([
             ['Métier Analysé:', job_title],
             ['Offres Analysées:', actual_offers_count],
-            [] # Ligne vide pour la séparation visuelle
+            []
         ])
         header_info.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0)
         
-        # Écrire le DataFrame des compétences avec ses propres en-têtes
-        # startrow=3 pour laisser de la place pour les 3 lignes d'en-tête ci-dessus
         df.to_excel(writer, index=False, sheet_name='Resultats', startrow=3)
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
@@ -55,14 +52,12 @@ def download_csv_endpoint():
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
     
-    # Préparer les lignes d'en-tête pour le CSV
     header_lines = [
         f"Métier Analysé: {job_title}",
         f"Offres Analysées: {actual_offers_count}",
-        "" # Ligne vide pour la séparation
+        ""
     ]
     
-    # Concaténer les lignes d'en-tête avec le contenu du DataFrame formaté en CSV
     csv_data = "\n".join(header_lines) + "\n" + df.to_csv(index=False)
     csv_data_bytes = csv_data.encode('utf-8')
     
@@ -148,17 +143,16 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
             
-            # Nouveau conteneur pour rendre le tableau scrollable verticalement
-            with ui.card().classes('w-full').style('max-height: 400px; overflow-y: auto;'): #
+            with ui.column().classes('w-full').style('max-height: 400px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px;'):
                 table = ui.table(
                     columns=[
-                        {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
-                        {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
-                        {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
+                        {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'classes': 'q-table--col-auto-width'},
+                        {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True, 'classes': 'q-table--col-auto-width'},
+                        {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True, 'classes': 'q-table--col-auto-width'},
                     ],
                     rows=formatted_skills, row_key='competence'
                 ).props('flat bordered').classes('w-full')
-                table.props('pagination={"rowsPerPage": 10}') # Cette ligne assure la pagination
+                table.props('pagination={"rowsPerPage": 10}')
                 table.bind_filter_from(filter_input, 'value')
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
@@ -234,8 +228,8 @@ def main_page():
             with ui.column().classes('w-full p-2'):
                 log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
                 ui.button('Vider tout le cache',
-                          on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
-                          color='red-6', icon='o_delete_forever').classes('mt-2')
+                            on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
+                            color='red-6', icon='o_delete_forever').classes('mt-2')
                 
                 ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
 
