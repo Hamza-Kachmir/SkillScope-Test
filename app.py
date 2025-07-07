@@ -87,11 +87,11 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
     logger.info("Affichage des résultats : Début de la fonction display_results.")
     container.clear()
-
+    
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
     actual_offers = results_dict.get('actual_offers_count', 0)
-
+    
     if not skills_data:
         logger.warning("Affichage des résultats : Aucune offre ou compétence pertinente n'a pu être extraite.")
         with container:
@@ -114,7 +114,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         with ui.row().classes('w-full items-baseline'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
-
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
@@ -124,66 +123,30 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
 
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
-
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
             ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
             ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
 
-        pagination_state = {'page': 1, 'rows_per_page': 10}
-        total_pages = max(1, (len(df) + pagination_state['rows_per_page'] - 1) // pagination_state['rows_per_page'])
-
-        table = ui.table(
-            columns=[
-                {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
-                {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left'},
-                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left'},
-            ],
-            rows=[],
-            row_key='competence',
-        ).props('flat bordered').classes('w-full')
-
-        def update_table():
-            start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
-            end = start + pagination_state['rows_per_page']
-            table.rows = df.iloc[start:end].to_dict(orient='records')
-            table.update()
-            page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
-
-        def go_to_first():
-            if pagination_state['page'] > 1:
-                pagination_state['page'] = 1
-                update_table()
-
-        def go_to_previous():
-            if pagination_state['page'] > 1:
-                pagination_state['page'] -= 1
-                update_table()
-
-        def go_to_next():
-            if pagination_state['page'] < total_pages:
-                pagination_state['page'] += 1
-                update_table()
-
-        def go_to_last():
-            if pagination_state['page'] < total_pages:
-                pagination_state['page'] = total_pages
-                update_table()
-
-        with ui.row().classes('justify-center items-center gap-4 mt-4'):
-            ui.button('<<', on_click=go_to_first).props('flat dense color=black', disable=pagination_state['page']==1)
-            ui.button('<', on_click=go_to_previous).props('flat dense color=black', disable=pagination_state['page']==1)
-            page_info_label = ui.label().classes('text-sm text-gray-700')
-            ui.button('>', on_click=go_to_next).props('flat dense color=black', disable=pagination_state['page']==total_pages)
-            ui.button('>>', on_click=go_to_last).props('flat dense color=black', disable=pagination_state['page']==total_pages)
-
-        update_table()
+        with ui.column().classes('w-full gap-2'):
+            filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
+            table = ui.table(
+                columns=[
+                    {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
+                    {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left'},
+                    {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left'},
+                ],
+                rows=formatted_skills,
+                row_key='competence',
+                pagination={'rowsPerPage': 10},
+                on_update=lambda e: None
+            ).props('flat bordered').classes('w-full')
 
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
 async def run_analysis_logic(force_refresh: bool = False):
     logger = logging.getLogger()
     logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
-    if not job_input.value:
+    if not job_input.value: 
         logger.warning("Analyse annulée : aucun métier n'a été entré.")
         return
     try:
@@ -195,14 +158,12 @@ async def run_analysis_logic(force_refresh: bool = False):
         job_value = job_input.value
         logger.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
         results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
-        if results is None:
-            raise ValueError("Aucune offre ou compétence trouvée.")
+        if results is None: raise ValueError("Aucune offre ou compétence trouvée.")
         display_results(results_container, results, job_value)
     except Exception as e:
         logger.critical(f"ERREUR CRITIQUE : {e}")
         results_container.clear()
-        with results_container:
-            ui.label(f"Une erreur est survenue, veuillez réessayer.").classes('text-negative')
+        with results_container: ui.label(f"Une erreur est survenue, veuillez réessayer.").classes('text-negative')
     logger.info("--- FIN DU PROCESSUS ---")
 
 @ui.page('/')
@@ -210,6 +171,7 @@ def main_page():
     global job_input, launch_button, results_container, log_view, all_log_messages
     ui.add_head_html('''
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="icon" type="image/svg+xml" href="/assets/SkillScope.svg">
         <style>
             ::-webkit-scrollbar {
                 width: 8px;
@@ -219,7 +181,6 @@ def main_page():
                 background-color: rgba(100, 100, 100, 0.5);
                 border-radius: 4px;
             }
-            .q-btn:hover { background-color: transparent !important; }
         </style>
     ''')
     app.add_static_files('/assets', 'assets')
@@ -234,17 +195,24 @@ def main_page():
         with ui.row().classes('w-full max-w-lg items-stretch'):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-full')
             job_input.style('font-size: 16px;')
-        launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis_logic).props('color=primary').classes('w-full max-w-lg')
+        launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis_logic).props('color=primary').classes('w-full max-w-md')
         results_container = ui.column().classes('w-full mt-6')
         with ui.column().classes('w-full items-center mt-8 pt-6'):
-            ui.html('''<p style="margin: 0; font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;"> Hamza Kachmir</span></p>''')
+            ui.html('''
+                <p style="margin: 0; font-size: 0.875rem; color: #6b7280;">
+                    <b style="color: black;">Développé par</b>
+                    <span style="color: #f9b15c; font-weight: bold;"> Hamza Kachmir</span>
+                </p>
+            ''')
             with ui.row().classes('gap-4 mt-2'):
                 ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
         with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
             with ui.column().classes('w-full p-2'):
                 log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
-                ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever').classes('mt-2')
+                ui.button('Vider tout le cache',
+                          on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
+                          color='red-6', icon='o_delete_forever').classes('mt-2')
                 ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
             handler = UiLogHandler(log_view, all_log_messages)
             logger = logging.getLogger()
