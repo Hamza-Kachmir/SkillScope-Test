@@ -92,7 +92,7 @@ async def run_analysis_logic(force_refresh: bool = False):
 
         job_value = job_input.value
         # FIX: Le nombre d'offres est maintenant fixé à 150
-        offers_value = 150
+        offers_value = 100
         logger.info(f"Appel du pipeline pour '{job_value}' avec {offers_value} offres (valeur fixe).")
         
         results = await get_skills_for_job(job_value, offers_value, logger)
