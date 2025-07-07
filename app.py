@@ -24,6 +24,7 @@ class UiLogHandler(logging.Handler):
         self.log_element.push(msg)
 
 def format_skill_name(skill: str) -> str:
+    """Met en majuscules les acronymes connus, et capitalize le reste."""
     known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
     if skill.lower() in known_acronyms:
         return skill.upper()
@@ -42,6 +43,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str, nu
                     ui.label("Aucune compétence pertinente n'a pu être extraite.").classes('text-yellow-800 ml-2')
         return
 
+    # Appliquer le formatage intelligent pour l'affichage
     for item in skills_data:
         item['skill'] = format_skill_name(item['skill'])
 
@@ -54,7 +56,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str, nu
             with ui.row(wrap=False).classes('items-center'):
                 ui.label(f"📊 Résultats pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
                 ui.label(f"({num_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
-            refresh_button = ui.button('Rafraîchir', icon='refresh', on_click=lambda: start_analysis(force_refresh=True))
+            refresh_button = ui.button('Rafraîchir', icon='refresh', on_click=lambda: refresh_analysis(job_title, num_offers))
             refresh_button.props('color=grey-6 flat dense')
             with ui.tooltip('Supprime les données du cache pour cette recherche et relance une nouvelle analyse.'):
                 ui.icon('info', color='grey')
@@ -85,10 +87,35 @@ def display_results(container: ui.column, results_dict: dict, job_title: str, nu
         
         table.bind_filter_from(filter_input, 'value')
 
-async def perform_analysis_in_background(job_title: str, num_offers: int):
-    """Contient la logique d'analyse longue, destinée à tourner en arrière-plan."""
-    logger = logging.getLogger()
+async def run_analysis_logic(force_refresh: bool = False):
+    if not all([job_input, offers_select, job_input.value, offers_select.value]):
+        ui.notify("Veuillez entrer un métier et sélectionner un volume.", color='warning')
+        return
+
+    job_title = job_input.value
+    num_offers = offers_select.value
+    cache_key = f"{job_title.lower().strip()}@{num_offers}"
     
+    if force_refresh:
+        await run.io_bound(delete_from_cache, cache_key)
+
+    results_container.clear()
+    log_view.clear()
+    
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    
+    if not any(isinstance(h, UiLogHandler) for h in logger.handlers):
+        logger.handlers.clear()
+        log_handler = UiLogHandler(log_view)
+        log_handler.setFormatter(formatter)
+        logger.addHandler(log_handler)
+
+    with results_container:
+        ui.spinner(size='lg', color='primary').classes('mx-auto')
+        ui.label(f"Analyse de {num_offers} offres en cours...").classes('mx-auto text-gray-600')
+
     try:
         results = await get_skills_for_job(job_title, num_offers, logger)
         if results is None:
@@ -105,42 +132,10 @@ async def perform_analysis_in_background(job_title: str, num_offers: int):
                     ui.icon('report_problem', color='negative')
                     ui.label(str(e)).classes('text-negative font-bold ml-2')
 
-async def start_analysis(force_refresh: bool = False):
-    """Prépare l'UI et lance la tâche d'analyse en arrière-plan."""
-    if not all([job_input, offers_select, job_input.value, offers_select.value]):
-        ui.notify("Veuillez entrer un métier et sélectionner un volume.", color='warning')
-        return
-
-    job_title = job_input.value
-    num_offers = offers_select.value
-    cache_key = f"{job_title.lower().strip()}@{num_offers}"
-    
-    if force_refresh:
-        # Rafraîchir ne fait que supprimer du cache. L'analyse suivra.
-        await run.io_bound(delete_from_cache, cache_key)
-
-    results_container.clear()
-    log_view.clear()
-    
-    logger = logging.getLogger()
-    if not any(isinstance(h, UiLogHandler) for h in logger.handlers):
-        logger.handlers.clear()
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        log_handler = UiLogHandler(log_view)
-        log_handler.setFormatter(formatter)
-        logger.addHandler(log_handler)
-
-    with results_container:
-        ui.spinner(size='lg', color='primary').classes('mx-auto')
-        ui.label(f"Analyse de {num_offers} offres en cours...").classes('mx-auto text-gray-600')
-
-    # Lance la tâche longue en arrière-plan sans bloquer
-    app.add_background_task(perform_analysis_in_background, job_title, num_offers)
-
 async def refresh_analysis(job_title_to_refresh: str, num_offers_to_refresh: int):
     job_input.value = job_title_to_refresh
     offers_select.value = num_offers_to_refresh
-    await start_analysis(force_refresh=True)
+    await run_analysis_logic(force_refresh=True)
 
 async def handle_flush_cache():
     success = await run.io_bound(flush_all_cache)
@@ -172,7 +167,7 @@ def main_page():
             job_input = ui.input(placeholder="Ex: Développeur Python...").props('outlined dense').classes('flex-grow')
             offers_select = ui.select({50: '50 offres', 100: '100 offres', 150: '150 offres'}, value=100, label='Volume').props('outlined dense')
         
-        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: start_analysis(force_refresh=False)).props('color=primary unelevated').classes('w-full max-w-lg mt-2')
+        launch_button = ui.button('Lancer l\'analyse', on_click=lambda: run_analysis_logic(force_refresh=False)).props('color=primary unelevated').classes('w-full max-w-lg mt-2')
         
         results_container = ui.column().classes('w-full mt-6')
         
