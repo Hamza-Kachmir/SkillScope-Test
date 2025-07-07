@@ -138,11 +138,10 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                     {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
                 ],
                 rows=formatted_skills,
-                row_key='competence'
+                row_key='competence',
+                pagination={'rowsPerPage': 10}
             ).props('flat bordered').classes('w-full')
-            
-            table.props('pagination={"rowsPerPage": 10}')
-            table.bind_filter_from(filter_input, 'value')
+
             
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
