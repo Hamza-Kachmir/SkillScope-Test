@@ -87,11 +87,11 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
     logger.info("Affichage des résultats : Début de la fonction display_results.")
     container.clear()
-    
+
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
     actual_offers = results_dict.get('actual_offers_count', 0)
-    
+
     if not skills_data:
         logger.warning("Affichage des résultats : Aucune offre ou compétence pertinente n'a pu être extraite.")
         with container:
@@ -123,26 +123,63 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
 
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
-        
+
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
-            ui.link('Exporter en Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
-            ui.link('Exporter en CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
+            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
+            ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
 
-        with ui.column().classes('w-full gap-2'):
-            filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
-            
-            table = ui.table(
-                columns=[
-                    {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
-                    {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
-                    {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
-                ],
-                rows=formatted_skills,
-                row_key='competence',
-                pagination={'rowsPerPage': 10}
-            ).props('flat bordered').classes('w-full')
+        from nicegui.events import ValueChangeEvent
 
-            
+        page_info_label = ui.label().classes('text-center text-sm text-gray-600')
+
+        pagination_state = {'page': 1, 'rows_per_page': 10}
+
+        def update_table():
+            start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
+            end = start + pagination_state['rows_per_page']
+            table.rows = df.iloc[start:end].to_dict(orient='records')
+            table.update()
+            page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
+
+        def go_to_first():
+            pagination_state['page'] = 1
+            update_table()
+
+        def go_to_previous():
+            if pagination_state['page'] > 1:
+                pagination_state['page'] -= 1
+                update_table()
+
+        def go_to_next():
+            if pagination_state['page'] < total_pages:
+                pagination_state['page'] += 1
+                update_table()
+
+        def go_to_last():
+            pagination_state['page'] = total_pages
+            update_table()
+
+        total_pages = max(1, (len(df) + pagination_state['rows_per_page'] - 1) // pagination_state['rows_per_page'])
+
+        table = ui.table(
+            columns=[
+                {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
+                {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'sortable': True},
+                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'sortable': True},
+            ],
+            rows=[],
+            row_key='competence',
+        ).props('flat bordered').classes('w-full')
+
+        update_table()
+
+        with ui.row().classes('justify-center items-center gap-4 mt-2'):
+            ui.button('<<', on_click=go_to_first).props('flat dense')
+            ui.button('<', on_click=go_to_previous).props('flat dense')
+            page_info_label
+            ui.button('>', on_click=go_to_next).props('flat dense')
+            ui.button('>>', on_click=go_to_last).props('flat dense')
+
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
 async def run_analysis_logic(force_refresh: bool = False):
@@ -214,7 +251,7 @@ def main_page():
                 ui.button('Vider tout le cache',
                             on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
                             color='red-6', icon='o_delete_forever').classes('mt-2')
-                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
+                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
             handler = UiLogHandler(log_view, all_log_messages)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
