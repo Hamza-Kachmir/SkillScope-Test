@@ -129,35 +129,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
             ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
 
-        page_info_label = ui.label().classes('text-sm text-gray-600')
-
         pagination_state = {'page': 1, 'rows_per_page': 10}
-
-        def update_table():
-            start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
-            end = start + pagination_state['rows_per_page']
-            table.rows = df.iloc[start:end].to_dict(orient='records')
-            table.update()
-            page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
-
-        def go_to_first():
-            pagination_state['page'] = 1
-            update_table()
-
-        def go_to_previous():
-            if pagination_state['page'] > 1:
-                pagination_state['page'] -= 1
-                update_table()
-
-        def go_to_next():
-            if pagination_state['page'] < total_pages:
-                pagination_state['page'] += 1
-                update_table()
-
-        def go_to_last():
-            pagination_state['page'] = total_pages
-            update_table()
-
         total_pages = max(1, (len(df) + pagination_state['rows_per_page'] - 1) // pagination_state['rows_per_page'])
 
         table = ui.table(
@@ -170,14 +142,41 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             row_key='competence',
         ).props('flat bordered').classes('w-full')
 
-        update_table()
+        def update_table():
+            start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
+            end = start + pagination_state['rows_per_page']
+            table.rows = df.iloc[start:end].to_dict(orient='records')
+            table.update()
+            page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
 
-        with ui.row().classes('justify-center items-center gap-4 mt-2'):
-            ui.button('<<', on_click=go_to_first).props('flat dense color=black')
-            ui.button('<', on_click=go_to_previous).props('flat dense color=black')
-            page_info_label
-            ui.button('>', on_click=go_to_next).props('flat dense color=black')
-            ui.button('>>', on_click=go_to_last).props('flat dense color=black')
+        def go_to_first():
+            if pagination_state['page'] > 1:
+                pagination_state['page'] = 1
+                update_table()
+
+        def go_to_previous():
+            if pagination_state['page'] > 1:
+                pagination_state['page'] -= 1
+                update_table()
+
+        def go_to_next():
+            if pagination_state['page'] < total_pages:
+                pagination_state['page'] += 1
+                update_table()
+
+        def go_to_last():
+            if pagination_state['page'] < total_pages:
+                pagination_state['page'] = total_pages
+                update_table()
+
+        with ui.row().classes('justify-center items-center gap-4 mt-4'):
+            ui.button('<<', on_click=go_to_first).props('flat dense color=black', disable=pagination_state['page']==1)
+            ui.button('<', on_click=go_to_previous).props('flat dense color=black', disable=pagination_state['page']==1)
+            page_info_label = ui.label().classes('text-sm text-gray-700')
+            ui.button('>', on_click=go_to_next).props('flat dense color=black', disable=pagination_state['page']==total_pages)
+            ui.button('>>', on_click=go_to_last).props('flat dense color=black', disable=pagination_state['page']==total_pages)
+
+        update_table()
 
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
@@ -220,6 +219,7 @@ def main_page():
                 background-color: rgba(100, 100, 100, 0.5);
                 border-radius: 4px;
             }
+            .q-btn:hover { background-color: transparent !important; }
         </style>
     ''')
     app.add_static_files('/assets', 'assets')
@@ -234,7 +234,7 @@ def main_page():
         with ui.row().classes('w-full max-w-lg items-stretch'):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-full')
             job_input.style('font-size: 16px;')
-        launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis_logic).props('color=primary').classes('w-full max-w-md')
+        launch_button = ui.button('Lancer l\'analyse', on_click=run_analysis_logic).props('color=primary').classes('w-full max-w-lg')
         results_container = ui.column().classes('w-full mt-6')
         with ui.column().classes('w-full items-center mt-8 pt-6'):
             ui.html('''<p style="margin: 0; font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;"> Hamza Kachmir</span></p>''')
