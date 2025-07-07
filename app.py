@@ -99,12 +99,9 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ui.label("Aucune offre ou compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
         return
 
-    # --- DÉBUT : Logique de la nouvelle version pour préparer les données ---
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
-    # --- FIN : Logique de la nouvelle version ---
 
-    # Enregistrement du DataFrame pour les exports (partie essentielle)
     try:
         app.latest_df = df
         app.latest_job_title = job_title
@@ -114,7 +111,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
 
     with container:
-        # Cartes de synthèse
         with ui.row().classes('w-full items-baseline'):
             ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
@@ -126,10 +122,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
 
-        # --- DÉBUT : NOUVEAU BLOC TABLEAU ---
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         
-        # Boutons d'export (conservés pour la fonctionnalité)
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
             ui.link('Exporter en Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon="o_download"')
             ui.link('Exporter en CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon="o_download"')
@@ -147,10 +141,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 row_key='competence'
             ).props('flat bordered').classes('w-full')
             
-            # La pagination gère le nombre de lignes affichées
             table.props('pagination={"rowsPerPage": 10}')
             table.bind_filter_from(filter_input, 'value')
-        # --- FIN : NOUVEAU BLOC TABLEAU ---
             
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
