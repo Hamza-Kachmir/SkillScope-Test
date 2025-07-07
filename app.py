@@ -147,7 +147,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             end = start + pagination_state['rows_per_page']
             table.rows = df.iloc[start:end].to_dict(orient='records')
             table.update()
-            page_info_label.text = f\"{pagination_state['page']} sur {total_pages}\"
+            page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
 
         def go_to_first():
             if pagination_state['page'] > 1:
