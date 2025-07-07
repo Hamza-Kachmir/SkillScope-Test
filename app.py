@@ -4,6 +4,7 @@ import os
 import sys
 import io
 from nicegui import ui, app, run
+from starlette.responses import Response
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
@@ -16,6 +17,31 @@ job_input = None
 launch_button = None
 results_container = None
 log_view = None
+
+
+@app.get('/download/excel')
+def download_excel_endpoint():
+    df = app.storage.session.get('latest_df')
+    if df is None:
+        return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Resultats')
+    
+    headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
+    return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
+
+@app.get('/download/csv')
+def download_csv_endpoint():
+    df = app.storage.session.get('latest_df')
+    if df is None:
+        return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
+        
+    csv_data = df.to_csv(index=False).encode('utf-8')
+    headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
+    return Response(content=csv_data, media_type='text/csv', headers=headers)
+
 
 class UiLogHandler(logging.Handler):
     def __init__(self, log_element: ui.log):
@@ -47,25 +73,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
 
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
-    clean_job_title = "".join(c if c.isalnum() else "_" for c in job_title)
-
-    def download_excel():
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Resultats')
-        ui.download(
-            data=output.getvalue(),
-            filename=f'skillscope_{clean_job_title}.xlsx',
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-
-    def download_csv():
-        csv_data = df.to_csv(index=False).encode('utf-8')
-        ui.download(
-            data=csv_data,
-            filename=f'skillscope_{clean_job_title}.csv',
-            media_type='text/csv'
-        )
+    app.storage.session['latest_df'] = df
 
     with container:
         with ui.row().classes('w-full items-baseline'):
@@ -83,8 +91,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
-            ui.button('Exporter en Excel', on_click=download_excel, icon='o_download', color='green').props('dense')
-            ui.button('Exporter en CSV', on_click=download_csv, icon='o_download', color='blue-grey').props('dense')
+            ui.button('Exporter en Excel', on_click=lambda: ui.open('/download/excel', new_tab=True), icon='o_download', color='green').props('dense')
+            ui.button('Exporter en CSV', on_click=lambda: ui.open('/download/csv', new_tab=True), icon='o_download', color='blue-grey').props('dense')
 
         with ui.column().classes('w-full gap-2'):
             filter_input = ui.input(placeholder="Chercher une compétence").props('outlined dense').classes('w-full')
