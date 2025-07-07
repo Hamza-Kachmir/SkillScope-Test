@@ -22,30 +22,54 @@ all_log_messages = [] # Nouvelle variable pour stocker les messages de log
 
 @app.get('/download/excel')
 def download_excel_endpoint():
-    # Accéder directement à app.latest_df qui est défini dans display_results
     df = getattr(app, 'latest_df', None)
-    
+    job_title = getattr(app, 'latest_job_title', 'Non spécifié')
+    actual_offers_count = getattr(app, 'latest_actual_offers_count', 0)
+
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Resultats')
+        # Créer un DataFrame pour les informations d'en-tête
+        header_df = pd.DataFrame([
+            ['Métier Analysé:', job_title],
+            ['Offres Analysées:', actual_offers_count],
+            [], # Ligne vide pour la séparation
+            ['Classement', 'Compétence', 'Fréquence'] # En-têtes du tableau de compétences
+        ])
+        
+        # Écrire les informations d'en-tête
+        header_df.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0, startcol=0)
+        
+        # Écrire le DataFrame des compétences après les informations d'en-tête
+        # Nous commençons à la ligne 4 (index 3) car nous avons 4 lignes d'en-tête (y compris la ligne vide et les titres du tableau)
+        df.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=4, startcol=0)
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
 @app.get('/download/csv')
 def download_csv_endpoint():
-    # Accéder directement à app.latest_df qui est défini dans display_results
     df = getattr(app, 'latest_df', None)
+    job_title = getattr(app, 'latest_job_title', 'Non spécifié')
+    actual_offers_count = getattr(app, 'latest_actual_offers_count', 0)
         
     if df is None:
         return Response("Aucune donnée à exporter. Veuillez d'abord lancer une analyse.", media_type='text/plain', status_code=404)
-        
-    csv_data = df.to_csv(index=False).encode('utf-8')
+    
+    # Préparer les lignes d'en-tête pour le CSV
+    header_lines = [
+        f"Métier Analysé: {job_title}",
+        f"Offres Analysées: {actual_offers_count}",
+        "" # Ligne vide pour la séparation
+    ]
+    
+    csv_data = "\n".join(header_lines + [df.to_csv(index=False)]) # Concaténer les en-têtes avec le CSV du DataFrame
+    csv_data_bytes = csv_data.encode('utf-8')
+    
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
-    return Response(content=csv_data, media_type='text/csv', headers=headers)
+    return Response(content=csv_data_bytes, media_type='text/csv', headers=headers)
 
 @app.get('/debug')
 def debug_endpoint():
@@ -88,7 +112,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     actual_offers = results_dict.get('actual_offers_count', 0)
 
     if not skills_data:
-        logger.warning("Affichage des résultats : Aucune donnée de compétence à afficher.")
+        logger.warning("Affichage des résultats : Aucune offre ou compétence pertinente n'a pu être extraite.")
         with container:
             with ui.card().classes('w-full bg-yellow-100 p-4'):
                 ui.label("Aucune offre ou compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
@@ -97,8 +121,9 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     formatted_skills = [{'classement': i + 1, 'competence': format_skill_name(item['skill']), 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
     try:
-        app.latest_df = df # Stocker le DataFrame directement sur l'objet app
-        # app.storage.client['latest_df'] = df # Cette ligne n'est plus nécessaire si on utilise getattr(app, 'latest_df', None)
+        app.latest_df = df
+        app.latest_job_title = job_title # Stocker le métier
+        app.latest_actual_offers_count = actual_offers # Stocker le nombre d'offres
         logger.info(f"✅ Résultats enregistrés : {len(df)} lignes dans latest_df.")
     except Exception as e:
         logger.error(f"❌ Erreur lors de l’enregistrement du DataFrame : {e}")
@@ -132,7 +157,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ],
                 rows=formatted_skills, row_key='competence'
             ).props('flat bordered').classes('w-full')
-            table.props('pagination={"rowsPerPage": 10}')
+            table.props('pagination={"rowsPerPage": 10}') # Cette ligne assure la pagination
             table.bind_filter_from(filter_input, 'value')
     logger.info("Affichage des résultats : Fin de la fonction display_results.")
 
@@ -170,7 +195,7 @@ async def run_analysis_logic(force_refresh: bool = False):
 
 @ui.page('/')
 def main_page():
-    global job_input, launch_button, results_container, log_view, all_log_messages # Ajout de all_log_messages
+    global job_input, launch_button, results_container, log_view, all_log_messages
     
     ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     app.add_static_files('/assets', 'assets')
@@ -211,12 +236,10 @@ def main_page():
                           on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')),
                           color='red-6', icon='o_delete_forever').classes('mt-2')
                 
-                # Bouton pour copier les logs
-                # On utilise 'all_log_messages' pour obtenir le texte complet
                 ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
 
 
-            handler = UiLogHandler(log_view, all_log_messages) # Passer la liste aux logs
+            handler = UiLogHandler(log_view, all_log_messages)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
             logger.handlers.clear()
