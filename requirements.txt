@@ -1,6 +1,5 @@
 nicegui==2.20.0
 pandas==2.3.0
-requests==2.32.4
 google-generativeai==0.8.5
 aiohttp==3.12.13
 redis==6.2.0

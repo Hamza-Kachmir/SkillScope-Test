@@ -4,88 +4,100 @@ import logging
 import json
 import os
 import asyncio
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
+# --- Constantes de configuration Gemini ---
 MODEL_NAME = 'gemini-1.5-flash-latest'
+PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md')
 
-PROMPT_COMPETENCES = """
-## MISSION
-Tu es un système expert en extraction de données pour le marché du travail. Ta mission est d'analyser des descriptions de postes avec une précision chirurgicale pour en extraire les compétences (`skills`) et le niveau d'études (`education_level`). Tu dois te comporter comme un analyseur sémantique déterministe qui suit les règles à la lettre.
+# --- État global du module ---
+model: Optional[genai.GenerativeModel] = None
+prompt_template: Optional[str] = None
 
-## FORMAT DE SORTIE IMPÉRATIF
-1.  **Format JSON Unique** : La sortie doit être un unique objet JSON valide contenant une seule clé principale : `"extracted_data"`.
-2.  **Liste d'Objets** : La valeur de `"extracted_data"` doit être une liste d'objets. Chaque objet représente une des descriptions de poste analysées.
-3.  **Structure de l'Objet** : Chaque objet dans la liste doit impérativement contenir trois clés : `"index"` (l'index de la description originale), `"skills"` (une liste de chaînes de caractères), et `"education_level"` (une unique chaîne de caractères).
-
-## RÈGLE D'OR : DÉFINITION ET FILTRAGE D'UNE COMPÉTENCE
-Pour être extraite, une expression doit correspondre à l'un des deux critères suivants. Tout le reste doit être ignoré.
-
-1.  **CRITÈRE 1 : TECHNOLOGIE OU MÉTHODOLOGIE NOMMÉE**
-    * Tu DOIS extraire les noms propres désignant sans ambiguïté une technologie, un logiciel, un langage ou une méthodologie.
-    * **Exemples :** `Python`, `React`, `Docker`, `Microsoft Excel`, `SAP`, `Agile`, `Silae`, `AWS`, `SQL`.
-
-2.  **CRITÈRE 2 : COMPÉTENCE D'ACTION**
-    * Si l'expression n'est pas une technologie nommée, elle DOIT décrire un savoir-faire ou une action concrète. Les noms de concepts seuls sont invalides.
-    * **Exemple fondamental :** "Gestion de la paie" est une compétence valide car "Gestion" est une action. "Paie" seul est un concept invalide et ne doit JAMAIS être extrait. "Intégration continue" est valide, "Intégration" seul est invalide.
-    * Si tu trouves à la fois la compétence d'action et le concept (ex: "Gestion de la paie" et "Paie"), tu dois **uniquement** conserver la compétence d'action.
-
-## RÈGLES SECONDAIRES
-1.  **Normalisation** : Regroupe les variations d'une même compétence (ex: ["power bi", "PowerBI"] -> "Power BI").
-2.  **Gestion de la Casse** : Acronymes en majuscules (`SQL`, `AWS`); Noms propres avec la casse standard (`Python`); Compétences générales avec une majuscule au début (`Gestion de projet`).
-
-## RÈGLES D'EXTRACTION DU NIVEAU D'ÉTUDES
-1.  **Priorité Absolue au Texte** : Ton analyse doit se baser **exclusivement** sur le texte de la description.
-2.  **Aucune Inférence** : Si aucun diplôme n'est mentionné, tu DOIS retourner "Non spécifié".
-3.  **Analyse de la Répartition** : Si tu observes une **forte dispersion** des niveaux demandés (ex: de nombreuses offres à Bac+2/3 ET de nombreuses offres à Bac+5), tu **dois** retourner une **fourchette réaliste** (ex: "Bac+2 à Bac+5"). Si une **majorité écrasante** pointe vers un niveau unique, retourne ce niveau.
-4.  **Catégories Autorisées** : La valeur doit **obligatoirement** être l'une des suivantes : "CAP / BEP", "Bac", "Bac+2 / BTS", "Bac+3 / Licence", "Bac+5 / Master", "Doctorat", "Formation spécifique", "Non spécifié", ou une fourchette logique.
-
-DESCRIPTIONS À ANALYSER CI-DESSOUS (format "index: description"):
-{indexed_descriptions}
-"""
-
-model = None
-
-def initialize_gemini():
-    global model
-    if model:
-        return True
-
-    google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
-    if not google_creds_json:
-        logging.critical("La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
-        return False
-        
+def _load_prompt_from_file() -> Optional[str]:
+    """Charge le template du prompt depuis le fichier prompt.md."""
     try:
-        credentials_info = json.loads(google_creds_json)
-        credentials = service_account.Credentials.from_service_account_info(credentials_info)
-        genai.configure(credentials=credentials)
-        generation_config = {"temperature": 0.0, "response_mime_type": "application/json"}
-        model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config)
-        logging.info("Client Gemini initialisé avec succès via les variables d'environnement.")
-        return True
+        with open(PROMPT_FILE_PATH, 'r', encoding='utf-8') as f:
+            logging.info(f"Prompt chargé avec succès depuis '{PROMPT_FILE_PATH}'.")
+            return f.read()
+    except FileNotFoundError:
+        logging.critical(f"Fichier de prompt non trouvé à l'emplacement '{PROMPT_FILE_PATH}' !")
+        return None
     except Exception as e:
-        logging.critical(f"Échec de l'initialisation de Gemini : {e}")
-        return False
+        logging.critical(f"Erreur lors de la lecture du fichier de prompt : {e}")
+        return None
 
-async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) -> Dict[str, Any] | None:
+def initialize_gemini() -> bool:
+    """
+    Initialise le client Gemini et charge le prompt.
+    Doit être appelée avant toute tentative d'extraction.
+
+    :return: True si l'initialisation est réussie, sinon False.
+    """
+    global model, prompt_template
+    if model and prompt_template:
+        return True
+
+    # Charger le prompt une seule fois
+    if not prompt_template:
+        prompt_template = _load_prompt_from_file()
+        if not prompt_template:
+            return False
+
+    # Initialiser le modèle si ce n'est pas déjà fait
     if not model:
+        google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
+        if not google_creds_json:
+            logging.critical("La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
+            return False
+            
+        try:
+            credentials_info = json.loads(google_creds_json)
+            credentials = service_account.Credentials.from_service_account_info(credentials_info)
+            genai.configure(credentials=credentials)
+            
+            # La température à 0.0 rend les réponses déterministes et moins "créatives"
+            generation_config = {"temperature": 0.0, "response_mime_type": "application/json"}
+            model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config)
+            logging.info(f"Client Gemini '{MODEL_NAME}' initialisé avec succès.")
+        except Exception as e:
+            logging.critical(f"Échec de l'initialisation de Gemini : {e}")
+            return False
+    
+    return True
+
+async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) -> Optional[Dict[str, Any]]:
+    """
+    Envoie un lot de descriptions de postes à l'API Gemini pour extraction.
+
+    :param job_title: Le titre du métier (utilisé pour le contexte, mais pas dans le prompt actuel).
+    :param descriptions: Une liste de descriptions de postes à analyser.
+    :return: Un dictionnaire contenant les données extraites, ou None en cas d'erreur.
+    """
+    if not model or not prompt_template:
+        logging.error("Tentative d'appel à Gemini sans initialisation préalable.")
         if not initialize_gemini():
             return None
 
-    indexed_descriptions = "\\n---\\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
-    prompt = PROMPT_COMPETENCES.format(indexed_descriptions=indexed_descriptions)
+    # Formater les descriptions pour les inclure dans le prompt
+    indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
+    full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions)
 
     logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
-        response = await model.generate_content_async(prompt)
+        # L'appel asynchrone est crucial pour la performance
+        response = await model.generate_content_async(full_prompt)
+        
+        # Le nettoyage simple des backslashes peut aider à corriger des JSON malformés
         cleaned_text = response.text.replace(r"\'", "'")
         skills_json = json.loads(cleaned_text)
-        logging.info("Réponse JSON de Gemini reçue et parsée avec succès pour un lot.")
+        
+        logging.info(f"Réponse JSON de Gemini reçue et parsée avec succès pour un lot de {len(descriptions)} offres.")
         return skills_json
         
     except json.JSONDecodeError as e:
-        logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}. Réponse brute: {cleaned_text}")
+        logging.error(f"Erreur de décodage JSON de la réponse Gemini. Erreur: {e}. Réponse brute reçue : {response.text[:500]}...")
         return None
     except Exception as e:
-        logging.error(f"Erreur lors de l'appel à l'API Gemini : {e}")
+        logging.error(f"Erreur inattendue lors de l'appel à l'API Gemini : {e}")
         return None
