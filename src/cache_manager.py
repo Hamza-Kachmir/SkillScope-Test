@@ -3,7 +3,7 @@ import json
 import os
 import logging
 
-# Durée de vie du cache en secondes (30 jours)
+# Durée de vie du cache en secondes (30 jours).
 CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 redis_client = None
@@ -23,9 +23,8 @@ def initialize_redis():
         return
 
     try:
-        # decode_responses=True pour obtenir des chaînes (str) au lieu de bytes
         redis_client = redis.from_url(redis_url, decode_responses=True)
-        redis_client.ping()
+        redis_client.ping() # Tente de communiquer avec Redis pour vérifier la connexion.
         logging.info("Connexion à Redis réussie.")
     except Exception as e:
         logging.error(f"Impossible de se connecter à Redis : {e}")
@@ -59,7 +58,7 @@ def add_to_cache(cache_key: str, results: dict):
     """
     if redis_client is None: return
     try:
-        # `ensure_ascii=False` pour gérer correctement les caractères accentués
+        # `ensure_ascii=False` pour gérer correctement les caractères accentués ou spéciaux.
         value_to_store = json.dumps(results, ensure_ascii=False)
         redis_client.setex(cache_key, CACHE_TTL_SECONDS, value_to_store)
         logging.info(f"Cache WRITE for '{cache_key}'.")
@@ -81,7 +80,7 @@ def delete_from_cache(cache_key: str):
 
 def flush_all_cache() -> bool:
     """
-    Vide complètement la base de données Redis connectée.
+    Vide complètement toutes les données de la base de données Redis connectée.
 
     :return: True si le vidage a réussi, sinon False.
     """
@@ -96,5 +95,5 @@ def flush_all_cache() -> bool:
         logging.error(f"Erreur lors du vidage complet du cache Redis : {e}")
         return False
 
-# Initialiser la connexion au démarrage de l'application
+# Initialise la connexion Redis au démarrage du module.
 initialize_redis()

@@ -6,13 +6,14 @@ import os
 import asyncio
 from typing import Dict, Any, List, Optional
 
-# --- Constantes de configuration Gemini ---
+# Constantes de configuration pour l'API Gemini.
 MODEL_NAME = 'gemini-1.5-flash-latest'
 PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md')
 
-# --- État global du module ---
+# Variables globales pour stocker le modèle Gemini et le template de prompt.
 model: Optional[genai.GenerativeModel] = None
 prompt_template: Optional[str] = None
+# Logger interne pour ce module, qui sera configuré par le logger de la session.
 _current_logger: logging.Logger = logging.getLogger(__name__) 
 
 
@@ -32,26 +33,30 @@ def _load_prompt_from_file() -> Optional[str]:
 def initialize_gemini(logger: logging.Logger) -> bool: 
     """
     Initialise le client Gemini et charge le prompt.
-    Doit être appelée avant toute tentative d'extraction.
+    Cette fonction doit être appelée avant toute tentative d'extraction.
 
-    :param logger: L'instance de logger à utiliser pour les messages.
+    :param logger: L'instance de logger à utiliser pour les messages de ce module.
     :return: True si l'initialisation est réussie, sinon False.
     """
     global model, prompt_template, _current_logger
-    _current_logger = logger # Définit le logger à utiliser pour ce module
+    _current_logger = logger # Redirige le logger interne pour utiliser celui de la session.
 
+    # Vérifie si le modèle et le prompt sont déjà chargés pour éviter une réinitialisation inutile.
     if model and prompt_template:
         return True
 
+    # Charge le prompt depuis le fichier si ce n'est pas déjà fait.
     if not prompt_template:
         prompt_template = _load_prompt_from_file()
         if not prompt_template:
             return False
 
+    # Initialise le modèle Gemini si ce n'est pas déjà fait.
     if not model:
         google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
         if not google_creds_json:
             _current_logger.critical("Gemini : La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
+            _current_logger.info({'type': 'user_progress', 'message': 'Erreur: Clés API Google Gemini manquantes.', 'value': 0.0})
             return False
             
         try:
@@ -59,48 +64,58 @@ def initialize_gemini(logger: logging.Logger) -> bool:
             credentials = service_account.Credentials.from_service_account_info(credentials_info)
             genai.configure(credentials=credentials)
             
+            # Configure le modèle pour des réponses déterministes et au format JSON.
             generation_config = {"temperature": 0.0, "response_mime_type": "application/json"}
             model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config)
             _current_logger.info(f"Gemini : Client '{MODEL_NAME}' initialisé avec succès.")
         except Exception as e:
             _current_logger.critical(f"Gemini : Échec de l'initialisation : {e}")
+            _current_logger.info({'type': 'user_progress', 'message': 'Erreur: Échec d\'initialisation de l\'IA.', 'value': 0.0})
             return False
     
     return True
 
 async def extract_skills_with_gemini(job_title: str, descriptions: List[str], logger: logging.Logger) -> Optional[Dict[str, Any]]:
     """
-    Envoie un lot de descriptions de postes à l'API Gemini pour extraction.
+    Envoie un lot de descriptions de postes à l'API Gemini pour extraction de compétences et niveau d'études.
 
-    :param job_title: Le titre du métier (utilisé pour le contexte, mais pas dans le prompt actuel).
+    :param job_title: Le titre du métier (utilisé pour le contexte des logs).
     :param descriptions: Une liste de descriptions de postes à analyser.
-    :param logger: L'instance de logger à utiliser pour les messages.
-    :return: Un dictionnaire contenant les données extraites, ou None en cas d'erreur.
+    :param logger: L'instance de logger à utiliser pour les messages de ce module.
+    :return: Un dictionnaire contenant les données extraites au format JSON, ou None en cas d'erreur.
     """
     global _current_logger
-    _current_logger = logger # S'assure que ce logger est utilisé pour les appels de log suivants
+    _current_logger = logger # S'assure que ce logger est utilisé pour les appels de log suivants dans ce module.
 
+    # Vérifie si le modèle et le prompt sont initialisés avant de procéder.
     if not model or not prompt_template:
         _current_logger.error("Gemini : Tentative d'appel à Gemini sans initialisation préalable.")
         if not initialize_gemini(logger):
             return None
 
+    # Formate les descriptions pour les inclure dans le prompt, en gardant leur index.
     indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
     full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions)
 
-    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}')...") 
+    # Message de log plus précis pour le début de l'appel Gemini
+    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}').") 
+    _current_logger.info({'type': 'user_progress', 'message': f'Analyse par l\'IA de {len(descriptions)} descriptions...', 'value': 0.6}) # Ajuster la valeur au fur et à mesure des lots si possible
     try:
         response = await model.generate_content_async(full_prompt)
         
+        # Nettoie la réponse pour corriger d'éventuels caractères d'échappement qui pourraient invalider le JSON.
         cleaned_text = response.text.replace(r"\'", "'")
         skills_json = json.loads(cleaned_text)
         
+        # Message de log pour la réception et le parsing de la réponse
         _current_logger.info(f"Gemini : Réponse JSON reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
         return skills_json
         
     except json.JSONDecodeError as e:
         _current_logger.error(f"Gemini : Erreur de décodage JSON de la réponse. Erreur: {e}. Réponse brute reçue : {response.text[:500]}...")
+        _current_logger.info({'type': 'user_progress', 'message': 'Erreur de lecture de la réponse de l\'IA. Veuillez réessayer.', 'value': 0.0})
         return None
     except Exception as e:
         _current_logger.error(f"Gemini : Erreur inattendue lors de l'appel à l'API : {e}")
+        _current_logger.info({'type': 'user_progress', 'message': 'Erreur de communication avec l\'IA. Veuillez réessayer.', 'value': 0.0})
         return None
