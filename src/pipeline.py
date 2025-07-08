@@ -8,7 +8,7 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # --- Constantes du Pipeline ---
-GEMINI_BATCH_SIZE = 10
+GEMINI_BATCH_SIZE = 5
 TOP_SKILLS_LIMIT = 30
 
 # Liste d'acronymes et de technologies spécifiques qui doivent garder leur casse
