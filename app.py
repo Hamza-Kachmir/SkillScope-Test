@@ -247,9 +247,10 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
     df = pd.DataFrame(formatted_skills)
 
     with container:
-        ui.row().classes('w-full items-baseline'):
-            ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800') 
-            ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
+        # Correction de la syntaxe ici (suppression du ':' après ui.row().classes)
+        ui.row().classes('w-full items-baseline')
+        ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800') 
+        ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
         ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
             ui.card().classes('items-center p-4 w-full sm:flex-1'):
@@ -420,11 +421,11 @@ def main_page(client: Client):
                 # Affiche l'UI de progression au lieu du simple spinner
                 results_container.clear()
                 with results_container:
-                    ui.column().classes('w-full p-4 items-center'):
+                    with ui.column().classes('w-full p-4 items-center'):
                         ui.spinner(size='lg', color='primary')
                         ui.html(f"Analyse en cours pour <strong>'{original_job_term}'</strong>...").classes('text-gray-600 mt-4 text-lg')
                         # Nouveaux éléments pour la progression visible par l'utilisateur
-                        nonlocal progress_label, progress_bar # Accède aux variables de la main_page
+                        nonlocal progress_label, progress_bar 
                         progress_label = ui.label().classes('text-gray-600 text-base mt-2 text-center')
                         progress_bar = ui.linear_progress(value=0, color='blue').classes('w-full mt-2')
 
@@ -492,7 +493,8 @@ def main_page(client: Client):
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
                 # Note: Le UiLogHandler ici est pour le développeur. Les progress_label/bar sont pour l'utilisateur.
-                session_logger.addHandler(UiLogHandler(log_view, all_log_messages, progress_label=ui.label(), progress_bar=ui.linear_progress(value=0))) # Créer des dummy elements pour éviter des erreurs si non utilisés.
+                # Créer des dummy elements pour éviter des erreurs si non utilisés en mode dev.
+                session_logger.addHandler(UiLogHandler(log_view, all_log_messages, progress_label=ui.label(), progress_bar=ui.linear_progress(value=0))) 
         else:
             # En mode production, les logs techniques ne sont pas affichés dans l'UI.
             pass
