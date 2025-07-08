@@ -8,9 +8,7 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # --- Constantes du Pipeline ---
-# Un batch size plus petit augmente le parallélisme (plus d'appels simultanés à l'API)
-# ce qui peut accélérer le temps de réponse global.
-GEMINI_BATCH_SIZE = 13
+GEMINI_BATCH_SIZE = 10  # MODIFIÉ : 10 descriptions par lot pour 10 lots (pour 100 offres)
 TOP_SKILLS_LIMIT = 30
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
@@ -70,13 +68,13 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     logger.info(f"Aucun résultat en cache pour '{cache_key}', poursuite de l'analyse.")
 
     # Étape 2: Initialisation des services externes (si nécessaire)
-    if not initialize_gemini():
+    if not initialize_gemini(logger): 
         logger.critical("Échec de l'initialisation de Gemini. Abandon du processus.")
         return None
 
     # Étape 3: Récupération des données brutes depuis l'API externe
     logger.info(f"Appel à l'API France Travail pour '{job_title}'.")
-    ft_client = FranceTravailClient(logger=logger)
+    ft_client = FranceTravailClient(logger=logger) 
     all_offers = await ft_client.search_offers_async(job_title, max_offers=num_offers)
     
     if not all_offers:
@@ -94,7 +92,7 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     description_chunks = _chunk_list(descriptions, GEMINI_BATCH_SIZE)
     logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle.")
     
-    tasks = [extract_skills_with_gemini(job_title, chunk) for chunk in description_chunks]
+    tasks = [extract_skills_with_gemini(job_title, chunk, logger) for chunk in description_chunks] 
     batch_results = await asyncio.gather(*tasks)
     
     # Étape 5: Agrégation et finalisation des résultats
