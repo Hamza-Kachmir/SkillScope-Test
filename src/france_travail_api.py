@@ -59,7 +59,6 @@ class FranceTravailClient:
                     return True
         except aiohttp.ClientError as e:
             self.logger.critical(f"France Travail : Échec de l'obtention du token. Erreur: {e}")
-            self.logger.info({'type': 'user_progress', 'message': 'Erreur de connexion à France Travail.', 'value': 0.0})
             return False
 
     def _is_token_valid(self) -> bool:
@@ -84,7 +83,6 @@ class FranceTravailClient:
         url = f"{API_BASE_URL}/v2/offres/search"
         
         self.logger.info(f"France Travail : Recherche de {max_offers} offres pour '{search_term}'.")
-        self.logger.info({'type': 'user_progress', 'message': f'Recherche de {max_offers} offres pour "{search_term}"...', 'value': 0.3})
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers, params=params, timeout=20) as response:
@@ -96,7 +94,6 @@ class FranceTravailClient:
                     api_response = await response.json()
                     api_results = api_response.get('resultats', [])
                     self.logger.info(f"France Travail : {len(api_results)} offres reçues via l'API.")
-                    self.logger.info({'type': 'user_progress', 'message': f'Trouvé {len(api_results)} offres. Filtrage en cours...', 'value': 0.35})
 
                     # Formatte les offres dans un format simple et unifié.
                     return [{
@@ -107,5 +104,4 @@ class FranceTravailClient:
                     } for offer in api_results]
         except aiohttp.ClientError as e:
             self.logger.error(f"France Travail : Erreur lors de la recherche asynchrone. Erreur: {e}")
-            self.logger.info({'type': 'user_progress', 'message': 'Erreur lors de la recherche d\'offres. Veuillez réessayer.', 'value': 0.0})
             return []

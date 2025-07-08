@@ -56,7 +56,6 @@ def initialize_gemini(logger: logging.Logger) -> bool:
         google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
         if not google_creds_json:
             _current_logger.critical("Gemini : La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
-            _current_logger.info({'type': 'user_progress', 'message': 'Erreur: Clés API Google Gemini manquantes.', 'value': 0.0})
             return False
             
         try:
@@ -70,7 +69,6 @@ def initialize_gemini(logger: logging.Logger) -> bool:
             _current_logger.info(f"Gemini : Client '{MODEL_NAME}' initialisé avec succès.")
         except Exception as e:
             _current_logger.critical(f"Gemini : Échec de l'initialisation : {e}")
-            _current_logger.info({'type': 'user_progress', 'message': 'Erreur: Échec d\'initialisation de l\'IA.', 'value': 0.0})
             return False
     
     return True
@@ -97,9 +95,7 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
     indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
     full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions)
 
-    # Message de log plus précis pour le début de l'appel Gemini
     _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}').") 
-    _current_logger.info({'type': 'user_progress', 'message': f'Analyse par l\'IA de {len(descriptions)} descriptions...', 'value': 0.6}) # Ajuster la valeur au fur et à mesure des lots si possible
     try:
         response = await model.generate_content_async(full_prompt)
         
@@ -107,15 +103,12 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
         cleaned_text = response.text.replace(r"\'", "'")
         skills_json = json.loads(cleaned_text)
         
-        # Message de log pour la réception et le parsing de la réponse
         _current_logger.info(f"Gemini : Réponse JSON reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
         return skills_json
         
     except json.JSONDecodeError as e:
         _current_logger.error(f"Gemini : Erreur de décodage JSON de la réponse. Erreur: {e}. Réponse brute reçue : {response.text[:500]}...")
-        _current_logger.info({'type': 'user_progress', 'message': 'Erreur de lecture de la réponse de l\'IA. Veuillez réessayer.', 'value': 0.0})
         return None
     except Exception as e:
         _current_logger.error(f"Gemini : Erreur inattendue lors de l'appel à l'API : {e}")
-        _current_logger.info({'type': 'user_progress', 'message': 'Erreur de communication avec l\'IA. Veuillez réessayer.', 'value': 0.0})
         return None

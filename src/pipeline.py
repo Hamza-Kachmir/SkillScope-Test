@@ -2,6 +2,7 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
+import re
 
 from src.france_travail_api import FranceTravailClient
 from src.cache_manager import get_cached_results, add_to_cache
@@ -10,6 +11,43 @@ from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 # Configuration pour l'analyse des offres et les lots Gemini.
 GEMINI_BATCH_SIZE = 5  # Nombre de descriptions par lot pour les appels Gemini (pour 100 offres, cela génère 20 lots).
 TOP_SKILLS_LIMIT = 30 # Nombre maximum de compétences à afficher dans le classement final.
+
+def _standardize_skill_python(skill_name: str) -> str:
+    """
+    Applique une normalisation robuste à une compétence en Python pour la déduplication et l'affichage.
+    - Convertit en minuscules pour la base de la comparaison interne.
+    - Gère le singulier/pluriel simple.
+    - Applique une casse standard pour l'affichage (Ex: "Gestion De Projet").
+    """
+    original_stripped = skill_name.strip()
+    lower_case_skill = original_stripped.lower()
+
+    # Règle pour les acronymes (plus de 1 caractère, tout en majuscule, sans espace) : les laisser tels quels.
+    # Ceci complète la normalisation de Gemini.
+    if original_stripped.isupper() and len(original_stripped) > 1 and ' ' not in original_stripped:
+        return original_stripped
+
+    # Gérer le singulier/pluriel simple pour les noms communs
+    # Cette règle est très basique et peut être améliorée avec des librairies NLP si nécessaire.
+    singularized_skill = lower_case_skill
+    if singularized_skill.endswith('s') and len(singularized_skill) > 2 and not singularized_skill.endswith('ss'):
+        # On ne supprime le 's' que si ce n'est pas un mot comme 'boss' et qu'il a une longueur raisonnable
+        singularized_skill = singularized_skill[:-1]
+    # Ajouter d'autres règles de singulier/pluriel si nécessaire (ex: en 'x', 'aux' etc.)
+
+    # Appliquer une casse standard pour l'affichage (première lettre de chaque mot important en majuscule)
+    # Ceci corrige "alimentation" -> "Alimentation", "gestion de projet" -> "Gestion De Projet"
+    words = singularized_skill.split()
+    capitalized_words = []
+    for i, word in enumerate(words):
+        # Les prépositions et articles courants restent en minuscule, sauf si c'est le premier mot.
+        if i > 0 and word in ['de', 'des', 'du', 'la', 'le', 'les', 'l\'', 'à', 'aux', 'et', 'ou', 'd\'', 'un', 'une', 'pour', 'avec', 'sans', 'sur', 'dans', 'en', 'par']:
+            capitalized_words.append(word.lower())
+        else:
+            capitalized_words.append(word.capitalize())
+    
+    return ' '.join(capitalized_words)
+
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
     """
@@ -24,30 +62,54 @@ def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
 def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
     """
     Agrège et compte les compétences et niveaux d'études extraits des différents lots par Gemini.
-    Les compétences sont censées être déjà normalisées en casse par le modèle d'IA.
+    Applique une normalisation Python supplémentaire pour la déduplication et la standardisation de l'affichage.
 
     :param batch_results: Une liste de résultats bruts provenant des appels à Gemini.
     :return: Un dictionnaire contenant les compétences agrégées par fréquence et le diplôme le plus demandé.
     """
-    skill_frequencies = defaultdict(int)
+    # Ce dictionnaire stockera les fréquences avec les clés normalisées pour le comptage.
+    skill_frequencies_normalized_key = defaultdict(int)
+    # Ce dictionnaire stockera la forme d'affichage préférée pour chaque clé normalisée.
+    skill_display_names = {}
+    
     education_frequencies = defaultdict(int)
 
     for result_batch in filter(None, batch_results):
         if 'extracted_data' in result_batch:
             for data_entry in result_batch['extracted_data']:
                 # Utilise un ensemble pour dédupliquer les compétences au sein d'une même description
-                # avant d'incrémenter leur fréquence globale.
-                unique_skills_in_description = set(s.strip() for s in data_entry.get('skills', []) if s.strip())
-                for skill_name in unique_skills_in_description:
-                    skill_frequencies[skill_name] += 1
+                # après leur normalisation Python.
+                processed_skills_for_this_description = set()
+                
+                for skill_raw in data_entry.get('skills', []):
+                    skill_stripped = skill_raw.strip()
+                    if not skill_stripped:
+                        continue
+                    
+                    # Normalise la compétence pour le comptage et le nom d'affichage canonique.
+                    standardized_skill = _standardize_skill_python(skill_stripped)
+                    
+                    # Utilise la version en minuscules et sans accent comme clé interne pour le comptage
+                    # afin de garantir une déduplication parfaite.
+                    counting_key = standardized_skill.lower() # Assure que "Alimentation" et "alimentation" comptent pareil.
+
+                    if counting_key not in skill_display_names:
+                        # Conserve la forme standardisée pour l'affichage.
+                        skill_display_names[counting_key] = standardized_skill
+                    
+                    processed_skills_for_this_description.add(counting_key)
+                
+                for skill_key_for_counting in processed_skills_for_this_description:
+                    skill_frequencies_normalized_key[skill_key_for_counting] += 1
                 
                 education_level = data_entry.get('education_level', 'Non spécifié')
                 if education_level and education_level != "Non spécifié":
                     education_frequencies[education_level] += 1
     
     # Trie les compétences par fréquence d'apparition (la plus fréquente en premier).
-    sorted_skills = sorted(skill_frequencies.items(), key=lambda item: item[1], reverse=True)
-    top_skills = [{"skill": skill, "frequency": freq} for skill, freq in sorted_skills[:TOP_SKILLS_LIMIT]]
+    # Utilise le nom d'affichage canonique pour le dictionnaire de sortie.
+    sorted_skills = sorted(skill_frequencies_normalized_key.items(), key=lambda item: item[1], reverse=True)
+    top_skills = [{"skill": skill_display_names[skill_key], "frequency": freq} for skill_key, freq in sorted_skills[:TOP_SKILLS_LIMIT]]
 
     # Détermine le niveau d'études le plus fréquemment demandé.
     top_education = max(education_frequencies, key=education_frequencies.get) if education_frequencies else "Non précisé"
@@ -72,52 +134,42 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     cache_key = f"{job_title}@{num_offers}" 
     cached_results = get_cached_results(cache_key) # Tente de récupérer les résultats du cache.
     if cached_results:
-        logger.info({'type': 'user_progress', 'message': f'Résultats trouvés dans le cache pour "{job_title}". Chargement instantané !', 'value': 1.0})
+        # Pas de messages 'user_progress' ici, car l'UI se base sur un simple spinner global
         logger.info(f"Résultats trouvés dans le cache pour '{cache_key}'. Fin du processus.")
         return cached_results
-    logger.info({'type': 'user_progress', 'message': f'Aucun résultat en cache pour "{job_title}". Démarrage de l\'analyse...', 'value': 0.15})
     logger.info(f"Aucun résultat en cache pour '{cache_key}', poursuite de l'analyse.")
 
     if not initialize_gemini(logger): 
         logger.critical("Échec de l'initialisation de Gemini. Abandon du processus.")
-        logger.info({'type': 'user_progress', 'message': 'Erreur: Problème avec l\'IA. Veuillez réessayer plus tard.', 'value': 0.0})
         return None
 
-    logger.info({'type': 'user_progress', 'message': f'Connexion à France Travail et recherche des offres pour "{job_title}"...', 'value': 0.25})
     logger.info(f"Appel à l'API France Travail pour '{job_title}'.")
     ft_client = FranceTravailClient(logger=logger) 
     all_offers = await ft_client.search_offers_async(job_title, max_offers=num_offers) 
     
     if not all_offers:
         logger.warning("Aucune offre France Travail trouvée. Fin du processus.")
-        logger.info({'type': 'user_progress', 'message': f'Aucune offre trouvée pour "{job_title}".', 'value': 1.0})
         return None
         
     descriptions = [offer['description'] for offer in all_offers if offer.get('description')]
     if not descriptions:
         logger.warning("Aucune description d'offre exploitable trouvée. Fin du processus.")
-        logger.info({'type': 'user_progress', 'message': f'Offres trouvées, mais sans description exploitable pour "{job_title}".', 'value': 1.0})
         return None
-    
-    logger.info({'type': 'user_progress', 'message': f'Trouvé {len(all_offers)} offres pour "{job_title}". Préparation de l\'analyse par l\'IA...', 'value': 0.4})
     logger.info(f"{len(all_offers)} offres trouvées, dont {len(descriptions)} avec une description valide.")
 
     # Division des descriptions en lots pour un traitement parallèle par Gemini.
     description_chunks = _chunk_list(descriptions, GEMINI_BATCH_SIZE)
-    logger.info({'type': 'user_progress', 'message': f'Envoi de {len(description_chunks)} blocs de descriptions à l\'IA pour analyse...', 'value': 0.5})
     logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle (taille de lot: {GEMINI_BATCH_SIZE}).") 
     
     # Exécute les appels à Gemini en parallèle.
     tasks = [extract_skills_with_gemini(job_title, chunk, logger) for chunk in description_chunks] 
     batch_results = await asyncio.gather(*tasks)
     
-    logger.info({'type': 'user_progress', 'message': 'Synthèse des compétences et niveaux requis...', 'value': 0.9})
     logger.info("Fusion et comptage des résultats de tous les lots Gemini...")
     aggregated_data = _aggregate_results(batch_results) 
     
     if not aggregated_data.get("skills"):
         logger.error("L'analyse n'a produit aucune compétence. Fin du processus.")
-        logger.info({'type': 'user_progress', 'message': f'L\'IA n\'a pas pu extraire de compétences pour "{job_title}".', 'value': 1.0})
         return None
 
     final_result = {
@@ -128,10 +180,8 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     
     logger.info(f"{len(final_result['skills'])} compétences uniques et diplôme le plus demandé ('{final_result['top_diploma']}') ont été agrégés.")
 
-    logger.info({'type': 'user_progress', 'message': f'Mise en cache des résultats pour "{job_title}"...', 'value': 0.95})
     logger.info(f"Mise en cache du résultat final avec la clé '{cache_key}'.")
     add_to_cache(cache_key, final_result)
     
     logger.info(f"Fin du processus pour '{job_title}'.")
-    logger.info({'type': 'user_progress', 'message': 'Analyse complète ! Affichage des résultats.', 'value': 1.0}) # Message final après cache
     return final_result
