@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import Dict, Any, List, Optional, Callable, Awaitable
+from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
 from src.france_travail_api import FranceTravailClient
@@ -10,7 +10,6 @@ from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 # --- Constantes du Pipeline ---
 GEMINI_BATCH_SIZE = 25
 TOP_SKILLS_LIMIT = 30
-TOTAL_STEPS = 6 # Nombre total d'étapes pour la barre de progression
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
     """Divise une liste en sous-listes (chunks) de taille fixe."""
@@ -38,40 +37,26 @@ def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
 
     return {"skills": top_skills, "top_diploma": top_education}
 
-async def get_skills_for_job(
-    job_title: str, 
-    num_offers: int, 
-    logger: logging.Logger,
-    progress_callback: Callable[[Dict], Awaitable[None]]
-) -> Optional[Dict[str, Any]]:
+async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Logger) -> Optional[Dict[str, Any]]:
     """
-    Orchestre le processus complet et rapporte sa progression via un callback.
+    Orchestre le processus complet : cache, recherche, extraction et agrégation.
     """
     logger.info(f"--- Début du processus pour '{job_title}' ---")
     
-    # --- Étape 1: Gestion du cache ---
-    step_num = 1
-    await progress_callback({'step': step_num, 'total': TOTAL_STEPS, 'message': 'Vérification du cache...', 'progress': step_num/TOTAL_STEPS})
+    # Étape 1: Gestion du cache
     cache_key = f"{job_title.lower().strip()}@{num_offers}"
     cached_results = get_cached_results(cache_key)
     if cached_results:
         logger.info("Résultats trouvés dans le cache. Fin du processus.")
-        # Simuler une progression rapide si le cache est trouvé
-        await progress_callback({'step': TOTAL_STEPS, 'total': TOTAL_STEPS, 'message': 'Résultats trouvés dans le cache !', 'progress': 1.0})
-        await asyncio.sleep(0.5) # Petite pause pour que l'utilisateur voie le message
         return cached_results
     logger.info("Aucun résultat en cache, poursuite de l'analyse.")
 
-    # --- Étape 2: Initialisation des services externes ---
-    step_num += 1
-    await progress_callback({'step': step_num, 'total': TOTAL_STEPS, 'message': 'Initialisation de Gemini...', 'progress': step_num/TOTAL_STEPS})
+    # Étape 2: Initialisation des services externes
     if not initialize_gemini():
         logger.critical("Échec de l'initialisation de Gemini.")
         return None
 
-    # --- Étape 3: Récupération des données brutes ---
-    step_num += 1
-    await progress_callback({'step': step_num, 'total': TOTAL_STEPS, 'message': 'Recherche des offres sur France Travail...', 'progress': step_num/TOTAL_STEPS})
+    # Étape 3: Récupération des données brutes
     ft_client = FranceTravailClient(logger=logger)
     all_offers = await ft_client.search_offers_async(job_title, max_offers=num_offers)
     
@@ -84,16 +69,12 @@ async def get_skills_for_job(
         logger.warning("Aucune description d'offre exploitable trouvée.")
         return None
 
-    # --- Étape 4: Traitement parallèle avec Gemini ---
-    step_num += 1
-    await progress_callback({'step': step_num, 'total': TOTAL_STEPS, 'message': f'Analyse de {len(descriptions)} descriptions...', 'progress': step_num/TOTAL_STEPS})
+    # Étape 4: Traitement parallèle avec Gemini
     description_chunks = _chunk_list(descriptions, GEMINI_BATCH_SIZE)
     tasks = [extract_skills_with_gemini(job_title, chunk) for chunk in description_chunks]
     batch_results = await asyncio.gather(*tasks)
     
-    # --- Étape 5: Agrégation ---
-    step_num += 1
-    await progress_callback({'step': step_num, 'total': TOTAL_STEPS, 'message': 'Synthèse des compétences...', 'progress': step_num/TOTAL_STEPS})
+    # Étape 5: Agrégation
     aggregated_data = _aggregate_results(batch_results)
     
     if not aggregated_data.get("skills"):
@@ -106,9 +87,7 @@ async def get_skills_for_job(
         "actual_offers_count": len(all_offers)
     }
     
-    # --- Étape 6: Mise en cache et finalisation ---
-    step_num += 1
-    await progress_callback({'step': step_num, 'total': TOTAL_STEPS, 'message': 'Finalisation...', 'progress': step_num/TOTAL_STEPS})
+    # Étape 6: Mise en cache et finalisation
     add_to_cache(cache_key, final_result)
     
     logger.info(f"--- Fin du processus pour '{job_title}' ---")

@@ -20,10 +20,6 @@ job_input = None
 results_container = None
 log_view = None
 all_log_messages = []
-# Éléments pour le nouvel indicateur de chargement
-progress_label = None
-progress_bar = None
-loading_container = None
 
 
 # --- Gestionnaires de logs pour l'UI ---
@@ -130,14 +126,14 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
 
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
-        with ui.row().classes('w-full justify-center gap-2 mb-2'):
-            ui.link('Export Excel', '/download/excel', new_tab=True).classes('bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
-            ui.link('Export CSV', '/download/csv', new_tab=True).classes('bg-blue-grey-600 text-white px-4 py-2 rounded-lg hover:bg-blue-grey-700')
+        # CORRECTION : Les deux boutons sont présents et leur style est corrigé.
+        with ui.row().classes('w-full justify-center gap-4 mb-2'):
+            ui.link('Export Excel', '/download/excel', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
+            ui.link('Export CSV', '/download/csv', new_tab=True).classes('no-underline bg-blue-grey-600 text-white px-4 py-2 rounded-lg hover:bg-blue-grey-700')
 
         pagination_state = {'page': 1, 'rows_per_page': 10}
         total_pages = max(1, (len(df) - 1) // pagination_state['rows_per_page'] + 1)
         
-        # CORRECTION DU BUG: Le paramètre 'rows' est maintenant fourni à l'initialisation.
         table = ui.table(
             columns=[
                 {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'style': 'width: 10%'},
@@ -149,7 +145,6 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ).props('flat bordered').classes('w-full')
 
         def update_table():
-            """Met à jour les lignes du tableau et les boutons de pagination."""
             start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
             end = start + pagination_state['rows_per_page']
             table.rows = df.iloc[start:end].to_dict('records')
@@ -159,24 +154,19 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             btn_next.set_enabled(pagination_state['page'] < total_pages)
             btn_last.set_enabled(pagination_state['page'] < total_pages)
 
+        # CORRECTION : La couleur des boutons de pagination est forcée à 'black'.
         with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
-            btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense')
-            btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense')
+            btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
+            btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
             page_info_label = ui.label()
-            btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense')
-            btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense')
+            btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
+            btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
 
         update_table()
 
 
-async def update_progress(data: Dict):
-    """Callback pour mettre à jour l'UI de chargement depuis le pipeline."""
-    progress_label.text = f"Étape {data['step']}/{data['total']}: {data['message']}"
-    progress_bar.value = data['progress']
-
 async def run_analysis_logic():
     """Fonction principale qui orchestre le lancement de l'analyse."""
-    global loading_container
     logger = logging.getLogger()
     logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
     
@@ -186,27 +176,16 @@ async def run_analysis_logic():
         return
 
     try:
-        # --- Afficher le nouvel indicateur de chargement ---
+        # CORRECTION : Indicateur de chargement simplifié
         results_container.clear()
         with results_container:
-            # Le conteneur de chargement est maintenant sans carte
-            loading_container = ui.column().classes('w-full p-4 items-center')
-            with loading_container:
-                # Texte dynamique qui sera mis à jour par le callback
+            with ui.column().classes('w-full p-4 items-center'):
                 ui.spinner(size='lg', color='primary')
                 ui.html(f"Analyse en cours pour <strong>'{job_value}'</strong>...").classes('text-gray-600 mt-4 text-lg')
-                
-                # Label pour les étapes détaillées
-                global progress_label
-                progress_label = ui.label("Initialisation...").classes("text-gray-500 text-sm mt-2")
-                
-                # Barre de progression
-                global progress_bar
-                progress_bar = ui.linear_progress(0.0).classes("w-full max-w-md mt-2")
 
-        # --- Lancer le pipeline avec le callback ---
+        # Lancer le pipeline sans le callback de progression
         logger.info(f"Appel du pipeline pour '{job_value}'.")
-        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger, progress_callback=update_progress)
+        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
         
         if results is None:
             raise ValueError("Le pipeline n'a retourné aucun résultat.")
@@ -228,7 +207,11 @@ def main_page():
     """Construit et configure la page principale de l'application."""
     global job_input, results_container, log_view, all_log_messages
 
-    ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+    # CORRECTION : Ajout du style pour enlever le soulignement des liens d'export.
+    ui.add_head_html('''
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>.no-underline { text-decoration: none !important; }</style>
+    ''')
     app.add_static_files('/assets', 'assets')
     ui.query('body').style('background-color: #f8fafc;')
 
@@ -240,7 +223,8 @@ def main_page():
         ui.markdown("### Un outil pour quantifier les compétences les plus demandées sur le marché de l'emploi.").classes('text-center font-light text-gray-800')
         ui.html("<i>Basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
-        with ui.card().classes('w-full max-w-lg p-4'):
+        # CORRECTION : La barre de recherche n'est plus dans une carte.
+        with ui.column().classes('w-full max-w-lg items-center'):
             job_input = ui.input(placeholder="Chercher un métier...").props('outlined dense clearable').classes('w-full text-lg')
             launch_button = ui.button("Lancer l'analyse", on_click=run_analysis_logic).props('color=primary no-caps').classes('w-full mt-2')
             launch_button.bind_enabled_from(job_input, 'value', backward=bool)
