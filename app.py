@@ -248,7 +248,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 
     with container:
         # Correction de la syntaxe ici (suppression du ':' après ui.row().classes)
-        ui.row().classes('w-full items-baseline')
+        ui.row().classes('w-full items-baseline') # Syntaxe corrigée
         ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800') 
         ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
@@ -492,7 +492,6 @@ def main_page(client: Client):
                         ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
-                # Note: Le UiLogHandler ici est pour le développeur. Les progress_label/bar sont pour l'utilisateur.
                 # Créer des dummy elements pour éviter des erreurs si non utilisés en mode dev.
                 session_logger.addHandler(UiLogHandler(log_view, all_log_messages, progress_label=ui.label(), progress_bar=ui.linear_progress(value=0))) 
         else:
