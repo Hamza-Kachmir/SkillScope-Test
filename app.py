@@ -44,8 +44,8 @@ def _get_export_data():
     """
     Récupère les données de la dernière analyse depuis le stockage de session de l'application.
     """
-    # Récupérer les données depuis le storage de la session utilisateur
-    # Utiliser get_client() pour plus de robustesse
+    # Ici, ui.context est généralement fiable car c'est un point d'entrée d'API.
+    # Cependant, pour une robustesse maximale, nous pouvons aussi utiliser get_client()
     current_client_storage = ui.context.get_client().storage.user
     df = current_client_storage.get('latest_df', None)
     job_title = current_client_storage.get('latest_job_title', 'Non spécifié')
@@ -121,10 +121,23 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
         return None
 
 
+def _store_results_for_client(client_storage: Any, results: Dict[str, Any], job_title: str):
+    """
+    Fonction pour stocker les résultats dans le stockage utilisateur du client.
+    Reçoit le stockage client explicitement.
+    """
+    df_to_store = pd.DataFrame([
+        {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
+        for i, item in enumerate(results.get('skills', []))
+    ])
+    client_storage['latest_df'] = df_to_store
+    client_storage['latest_job_title'] = job_title
+    client_storage['latest_actual_offers_count'] = results.get('actual_offers_count', 0)
+
+
 def display_results(container: ui.column, results_dict: Dict[str, Any], job_title: str):
     """
     Construit dynamiquement la section des résultats dans l'interface.
-    Les données pour l'export sont déjà stockées dans ui.context.storage.user au moment de l'appel.
     """
     container.clear()
 
@@ -139,9 +152,6 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 
     formatted_skills = [{'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
-
-    # Les données pour l'export sont maintenant stockées dans handle_analysis_click.
-    # Cette fonction n'a plus besoin de le faire.
 
     with container:
         with ui.row().classes('w-full items-baseline'):
@@ -191,16 +201,13 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 @ui.page('/')
 def main_page():
     """Construit et configure la page principale de l'application, spécifique à chaque session."""
-    # Ces variables sont maintenant locales à CHAQUE session utilisateur
     job_input: ui.input = None
     results_container: ui.column = None
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session
 
-    # Configurez un logger spécifique à cette session
-    # Le nom unique garantit l'isolation des logs entre sessions
     session_logger = logging.getLogger(f"session_logger_{id(ui.context)}")
-    session_logger.handlers.clear() # S'assurer qu'aucun ancien handler n'est là
+    session_logger.handlers.clear()
     session_logger.setLevel(logging.INFO) # Niveau de log à INFO pour le test
 
     # --- Configuration de la page et des styles CSS ---
@@ -228,8 +235,6 @@ def main_page():
         with ui.row().classes('w-full max-w-lg items-stretch'):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-full text-lg')
         
-        # Le on_click gère maintenant l'exécution du pipeline et la mise à jour de l'UI
-        # La logique de stockage des résultats est ici pour garantir le bon contexte ui.context.storage.user
         async def handle_analysis_click():
             current_job_value = job_input.value
             session_logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
@@ -239,6 +244,9 @@ def main_page():
                 return
 
             try:
+                # Récupérer le stockage du client DÈS LE DÉBUT du handler pour s'assurer du contexte
+                current_client_storage = ui.context.get_client().storage.user # Accès le plus sûr ici
+
                 # Afficher l'indicateur de chargement
                 results_container.clear()
                 with results_container:
@@ -252,15 +260,8 @@ def main_page():
                 if results is None:
                     raise ValueError("Le pipeline n'a retourné aucun résultat ou a échoué.")
 
-                # Stocker les données pour l'export dans le stockage de session
-                # Utiliser ui.context.get_client().storage.user pour un accès plus robuste
-                current_client_storage = ui.context.get_client().storage.user # Accès plus sûr
-                current_client_storage['latest_df'] = pd.DataFrame([ #
-                    {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
-                    for i, item in enumerate(results.get('skills', []))
-                ])
-                current_client_storage['latest_job_title'] = current_job_value #
-                current_client_storage['latest_actual_offers_count'] = results.get('actual_offers_count', 0) #
+                # Stocker les données pour l'export en utilisant le client_storage récupéré au début
+                _store_results_for_client(current_client_storage, results, current_job_value)
 
                 # Afficher les résultats une fois l'analyse terminée
                 display_results(results_container, results, current_job_value)
