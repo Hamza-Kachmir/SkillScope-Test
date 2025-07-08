@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import io
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from nicegui import ui, app, run
 from starlette.responses import Response
 
@@ -94,48 +94,36 @@ def download_csv_endpoint():
 
 
 # --- Logique d'affichage et d'analyse ---
-async def run_analysis_logic(job_input_val: str, results_container_ui: ui.column, log_messages_list_ui: List[str], logger_instance: logging.Logger):
+async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Logger) -> Optional[Dict[str, Any]]:
     """
-    Fonction principale qui orchestre le lancement de l'analyse suite au clic de l'utilisateur.
-    Reçoit maintenant les éléments UI et le logger spécifiques à la session.
+    Fonction interne pour exécuter le pipeline d'analyse et retourner les résultats bruts.
+    Séparée de la logique d'affichage et de gestion du contexte UI.
     """
-    logger_instance.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
-    
-    job_value = job_input_val
-    if not job_value:
-        logger_instance.warning("Analyse annulée : aucun métier n'a été entré.")
-        return
+    logger_instance.info("--- Début du pipeline d'analyse ---")
+    if not job_input_val:
+        logger_instance.warning("Analyse annulée dans le pipeline : aucun métier n'a été entré.")
+        return None
 
     try:
-        results_container_ui.clear()
-        with results_container_ui:
-            with ui.column().classes('w-full p-4 items-center'):
-                ui.spinner(size='lg', color='primary')
-                ui.html(f"Analyse en cours pour <strong>'{job_value}'</strong>...").classes('text-gray-600 mt-4 text-lg')
-
-        logger_instance.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
-        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger_instance)
+        logger_instance.info(f"Appel du pipeline pour '{job_input_val}' avec {NB_OFFERS_TO_ANALYZE} offres.")
+        results = await get_skills_for_job(job_input_val, NB_OFFERS_TO_ANALYZE, logger_instance)
         
         if results is None:
-            raise ValueError("Le pipeline n'a retourné aucun résultat.")
-
-        # Les données pour l'export sont maintenant passées directement à display_results
-        # et stockées dans ui.context.storage.user à l'intérieur de display_results.
-        display_results(results_container_ui, results, job_value)
+            logger_instance.warning("Le pipeline n'a retourné aucun résultat pour la recherche.")
+            return None
+        
+        logger_instance.info(f"--- Fin du pipeline d'analyse pour '{job_input_val}' ---")
+        return results
 
     except Exception as e:
-        logger_instance.critical(f"ERREUR CRITIQUE PENDANT L'ANALYSE : {e}", exc_info=True)
-        results_container_ui.clear()
-        with results_container_ui:
-            ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
-    
-    logger_instance.info("--- FIN DU PROCESSUS ---")
+        logger_instance.critical(f"ERREUR CRITIQUE DANS LE PIPELINE D'ANALYSE : {e}", exc_info=True)
+        return None
 
 
 def display_results(container: ui.column, results_dict: Dict[str, Any], job_title: str):
     """
     Construit dynamiquement la section des résultats dans l'interface.
-    Stocke aussi les données dans le storage de session.
+    Les données pour l'export sont déjà stockées dans ui.context.storage.user au moment de l'appel.
     """
     container.clear()
 
@@ -150,12 +138,6 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 
     formatted_skills = [{'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
-
-    # Stockage des données spécifiques à la session pour l'export.
-    # Ceci est fait ici car display_results est appelée directement par un événement UI.
-    ui.context.storage.user['latest_df'] = df
-    ui.context.storage.user['latest_job_title'] = job_title
-    ui.context.storage.user['latest_actual_offers_count'] = actual_offers
 
     with container:
         with ui.row().classes('w-full items-baseline'):
@@ -212,8 +194,9 @@ def main_page():
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session
 
     # Configurez un logger spécifique à cette session
+    # Le nom unique garantit l'isolation des logs entre sessions
     session_logger = logging.getLogger(f"session_logger_{id(ui.context)}")
-    session_logger.handlers.clear()
+    session_logger.handlers.clear() # S'assurer qu'aucun ancien handler n'est là
     session_logger.setLevel(logging.INFO) # Niveau de log à INFO pour le test
 
     # --- Configuration de la page et des styles CSS ---
@@ -241,9 +224,52 @@ def main_page():
         with ui.row().classes('w-full max-w-lg items-stretch'):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-full text-lg')
         
-        launch_button = ui.button("Lancer l'analyse", on_click=lambda: run_analysis_logic(
-            job_input.value, results_container, all_log_messages, session_logger
-        )).props('color=primary').classes('w-full max-w-lg mt-4')
+        # Le on_click gère maintenant l'exécution du pipeline et la mise à jour de l'UI
+        # La logique de stockage des résultats est ici pour garantir le bon contexte ui.context.storage.user
+        async def handle_analysis_click():
+            current_job_value = job_input.value
+            session_logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
+            
+            if not current_job_value:
+                session_logger.warning("Analyse annulée : aucun métier n'a été entré.")
+                return
+
+            try:
+                # Afficher l'indicateur de chargement
+                results_container.clear()
+                with results_container:
+                    with ui.column().classes('w-full p-4 items-center'):
+                        ui.spinner(size='lg', color='primary')
+                        ui.html(f"Analyse en cours pour <strong>'{current_job_value}'</strong>...").classes('text-gray-600 mt-4 text-lg')
+
+                # Exécuter le pipeline d'analyse
+                results = await _run_analysis_pipeline(current_job_value, session_logger)
+                
+                if results is None:
+                    raise ValueError("Le pipeline n'a retourné aucun résultat ou a échoué.")
+
+                # Stocker les données pour l'export dans le stockage de session
+                # C'est ici que l'accès à ui.context.storage.user est le plus sûr
+                ui.context.storage.user['latest_df'] = pd.DataFrame([
+                    {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
+                    for i, item in enumerate(results.get('skills', []))
+                ])
+                ui.context.storage.user['latest_job_title'] = current_job_value
+                ui.context.storage.user['latest_actual_offers_count'] = results.get('actual_offers_count', 0)
+
+                # Afficher les résultats une fois l'analyse terminée
+                display_results(results_container, results, current_job_value)
+
+            except Exception as e:
+                session_logger.critical(f"ERREUR CRITIQUE PENDANT L'ANALYSE : {e}", exc_info=True)
+                results_container.clear()
+                with results_container:
+                    ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
+            
+            session_logger.info("--- FIN DU PROCESSUS ---")
+
+
+        launch_button = ui.button("Lancer l'analyse", on_click=handle_analysis_click).props('color=primary').classes('w-full max-w-lg mt-4')
         
         launch_button.bind_enabled_from(job_input, 'value', backward=bool)
 
