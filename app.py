@@ -25,16 +25,19 @@ class UiLogHandler(logging.Handler):
         super().__init__()
         self.log_element = log_element
         self.log_messages_list = log_messages_list
+        # Utiliser un formateur pour s'assurer que les messages sont cohérents
         self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
     def emit(self, record):
         """Formate et pousse un enregistrement de log vers l'interface."""
         try:
-            msg = self.format(record)
+            msg = self.format(record) # Format the record
             self.log_messages_list.append(msg)
-            if self.log_element:
+            # Vérifier si l'élément UI existe et est valide avant de pousser
+            if self.log_element and hasattr(self.log_element, 'push'):
                 self.log_element.push(msg)
         except Exception as e:
+            # En dernier recours, si le logging de l'UI échoue, on utilise print
             print(f"Error in UiLogHandler: {e}")
 
 
@@ -187,7 +190,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
             
             # Correction de l'emplacement: le label page_info_label est déclaré ici pour être dans le même scope que les boutons.
-            page_info_label = ui.label() 
+            page_info_label = ui.label() # Cette ligne était déjà déplacée, elle est maintenant confirmée ici.
             
             btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
             btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
@@ -214,7 +217,8 @@ def main_page(client: Client): # Recevez le client directement ici
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session
 
-    session_logger = logging.getLogger(f"session_logger_{id(client)}") # Utiliser client.id pour le nom du logger
+    # Le logger de session doit être le point d'entrée unique pour tous les messages
+    session_logger = logging.getLogger(f"session_logger_{id(client)}") 
     session_logger.handlers.clear()
     session_logger.setLevel(logging.INFO) # Niveau de log à INFO pour le test
 
@@ -266,7 +270,12 @@ def main_page(client: Client): # Recevez le client directement ici
                 results = await _run_analysis_pipeline(current_job_value, session_logger)
                 
                 if results is None:
-                    raise ValueError("Le pipeline n'a retourné aucun résultat ou a échoué.")
+                    # Gérer le cas où le pipeline retourne None sans lever d'exception
+                    session_logger.error("Le pipeline n'a retourné aucun résultat exploitable.")
+                    results_container.clear()
+                    with results_container:
+                        ui.label(f"Aucun résultat trouvé pour '{current_job_value}'.").classes('text-negative')
+                    return
 
                 # Stocker les données pour l'export en utilisant l'objet 'client_storage_for_this_session'
                 _store_results_for_client(client_storage_for_this_session, results, current_job_value)
