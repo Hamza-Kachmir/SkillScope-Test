@@ -52,8 +52,13 @@ def _get_export_data():
     job_title = current_client_storage.get('latest_job_title', 'Non spécifié')
     actual_offers_count = current_client_storage.get('latest_actual_offers_count', 0)
     
-    if df is None or df.empty:
+    if df is None:
+        # Retourne un DataFrame vide si df est None pour éviter des erreurs plus tard
+        df = pd.DataFrame() 
+    
+    if df.empty: # Si après vérif, c'est vide, retourne None pour l'export.
         return None, None, None
+
     return df, job_title, actual_offers_count
 
 @app.get('/download/excel')
@@ -108,9 +113,11 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
 
     try:
         logger_instance.info(f"Appel du pipeline pour '{job_input_val}' avec {NB_OFFERS_TO_ANALYZE} offres.")
+        # Appel à get_skills_for_job qui gère les appels à Gemini et France Travail
         results = await get_skills_for_job(job_input_val, NB_OFFERS_TO_ANALYZE, logger_instance)
         
         if results is None:
+            # Gérer le cas où le pipeline retourne None sans lever d'exception
             logger_instance.warning("Le pipeline n'a retourné aucun résultat pour la recherche.")
             return None
         
@@ -179,18 +186,18 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             columns=[
                 {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'style': 'width: 10%'},
                 {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'style': 'width: 70%'},
-                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
+                {'name': 'frequence', 'label': 'Fréquence', 'align': 'left', 'style': 'width: 20%'},
             ],
             rows=[],
             row_key='competence'
         ).props('flat bordered').classes('w-full')
 
+        # La page_info_label est placée ici, au centre des boutons de pagination.
         with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
             btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
             btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
             
-            # Correction de l'emplacement: le label page_info_label est déclaré ici pour être dans le même scope que les boutons.
-            page_info_label = ui.label() # Cette ligne était déjà déplacée, elle est maintenant confirmée ici.
+            page_info_label = ui.label() # Déclaration et création du label ici
             
             btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
             btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
@@ -210,17 +217,33 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 
 
 @ui.page('/')
-def main_page(client: Client): # Recevez le client directement ici
+def main_page(client: Client):
     """Construit et configure la page principale de l'application, spécifique à chaque session."""
     job_input: ui.input = None
     results_container: ui.column = None
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session
 
-    # Le logger de session doit être le point d'entrée unique pour tous les messages
     session_logger = logging.getLogger(f"session_logger_{id(client)}") 
     session_logger.handlers.clear()
-    session_logger.setLevel(logging.INFO) # Niveau de log à INFO pour le test
+    session_logger.setLevel(logging.INFO) # Garder à INFO pour le mode test
+
+    # S'assurer que le logger racine propage les messages aux handlers (y compris session_logger si configuré)
+    # et qu'il n'y a pas d'autres handlers par défaut qui pourraient intercepter.
+    root_logger = logging.getLogger()
+    if not root_logger.handlers: # Seulement si aucun handler n'est configuré pour le root logger
+        # Créer un StreamHandler pour que les logs aillent aussi en console/fichier de l'hébergeur
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
+        root_logger.addHandler(console_handler)
+    root_logger.setLevel(logging.INFO) # S'assurer que le root logger est au moins au niveau INFO
+
+    # NOTE: `propagate = True` par défaut pour les loggers enfants, donc session_logger
+    # devrait recevoir les messages du root_logger.
+    # Pour s'assurer que le session_logger est le SEUL à gérer les logs pour son nom,
+    # on peut potentiellement mettre `session_logger.propagate = False` si on gère tout via son handler,
+    # mais pour l'instant, laissons-le propaguer au root_logger pour la console de Render.
+
 
     # --- Configuration de la page et des styles CSS ---
     ui.add_head_html('''
@@ -313,6 +336,7 @@ def main_page(client: Client): # Recevez le client directement ici
                     ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever')
                     ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
             
+            # Assurez-vous que le handler est attaché uniquement à session_logger
             session_logger.addHandler(UiLogHandler(log_view, all_log_messages))
 
 
