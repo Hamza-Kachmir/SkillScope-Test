@@ -33,8 +33,7 @@ class UiLogHandler(logging.Handler):
         try:
             msg = self.format(record)
             self.log_messages_list.append(msg)
-            # Toujours pousser vers l'UI en mode non-production
-            if self.log_element:
+            if self.log_element: # S'assurer que l'élément UI existe
                 self.log_element.push(msg)
         except Exception as e:
             print(f"Error in UiLogHandler: {e}")
@@ -46,6 +45,7 @@ def _get_export_data():
     Récupère les données de la dernière analyse depuis le stockage de session de l'application.
     """
     # Récupérer les données depuis le storage de la session utilisateur
+    # ui.context.storage.user est fiable ici car ces endpoints sont déclenchés par le client
     df = ui.context.storage.user.get('latest_df', None)
     job_title = ui.context.storage.user.get('latest_job_title', 'Non spécifié')
     actual_offers_count = ui.context.storage.user.get('latest_actual_offers_count', 0)
@@ -119,12 +119,8 @@ async def run_analysis_logic(job_input_val: str, results_container_ui: ui.column
         if results is None:
             raise ValueError("Le pipeline n'a retourné aucun résultat.")
 
-        # Stockage des données spécifiques à la session pour l'export
-        # Utilisation de pd.DataFrame ici pour assurer que c'est un DataFrame, même si vide
-        ui.context.storage.user['latest_df'] = pd.DataFrame([{'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} for i, item in enumerate(results.get('skills', []))])
-        ui.context.storage.user['latest_job_title'] = job_value
-        ui.context.storage.user['latest_actual_offers_count'] = results.get('actual_offers_count', 0)
-
+        # Les données pour l'export sont maintenant passées directement à display_results
+        # et stockées dans ui.context.storage.user à l'intérieur de display_results.
         display_results(results_container_ui, results, job_value)
 
     except Exception as e:
@@ -137,7 +133,10 @@ async def run_analysis_logic(job_input_val: str, results_container_ui: ui.column
 
 
 def display_results(container: ui.column, results_dict: Dict[str, Any], job_title: str):
-    """Construit dynamiquement la section des résultats dans l'interface."""
+    """
+    Construit dynamiquement la section des résultats dans l'interface.
+    Stocke aussi les données dans le storage de session.
+    """
     container.clear()
 
     skills_data = results_dict.get('skills', [])
@@ -152,7 +151,11 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
     formatted_skills = [{'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
 
-    # Les données pour l'export sont déjà stockées dans ui.context.storage.user par run_analysis_logic
+    # Stockage des données spécifiques à la session pour l'export.
+    # Ceci est fait ici car display_results est appelée directement par un événement UI.
+    ui.context.storage.user['latest_df'] = df
+    ui.context.storage.user['latest_job_title'] = job_title
+    ui.context.storage.user['latest_actual_offers_count'] = actual_offers
 
     with container:
         with ui.row().classes('w-full items-baseline'):
@@ -195,13 +198,6 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             btn_prev.set_enabled(pagination_state['page'] > 1)
             btn_next.set_enabled(pagination_state['page'] < total_pages)
             btn_last.set_enabled(pagination_state['page'] < total_pages)
-
-        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
-            btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
-            btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
-            page_info_label = ui.label()
-            btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
-            btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
 
         update_table()
 
@@ -261,7 +257,6 @@ def main_page():
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" class="link-hover" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
 
         # --- Section "Logs" extensible (toujours affichée en mode test) ---
-        # Le bloc IF/ELSE du mode production a été supprimé pour toujours afficher cette section
         with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
             with ui.column().classes('w-full p-2'):
                 log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
@@ -269,7 +264,6 @@ def main_page():
                     ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever')
                     ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
             
-            # Attacher le handler de log à ce logger spécifique à la session
             session_logger.addHandler(UiLogHandler(log_view, all_log_messages))
 
 
