@@ -96,12 +96,19 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) ->
     logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
         response = await model.generate_content_async(prompt)
-        skills_json = json.loads(response.text)
+        
+        # --- DÉBUT DE LA CORRECTION ---
+        # On corrige l'erreur d'échappement de l'apostrophe avant de parser le JSON
+        cleaned_text = response.text.replace(r"\'", "'")
+        skills_json = json.loads(cleaned_text)
+        # --- FIN DE LA CORRECTION ---
+
         logging.info("Réponse JSON de Gemini reçue et parsée avec succès pour un lot.")
         return skills_json
         
     except json.JSONDecodeError as e:
-        logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}. Réponse brute: {response.text}")
+        # On utilise le texte nettoyé dans le message d'erreur pour un meilleur diagnostic
+        logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}. Réponse brute: {cleaned_text}")
         return None
     except Exception as e:
         logging.error(f"Erreur lors de l'appel à l'API Gemini : {e}")
