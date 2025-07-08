@@ -11,16 +11,17 @@ Pour être extraite, une expression doit correspondre à l'un des deux critères
 
 1.  **CRITÈRE 1 : TECHNOLOGIE OU MÉTHODOLOGIE NOMMÉE**
     * Tu DOIS extraire les noms propres désignant sans ambiguïté une technologie, un logiciel, un langage ou une méthodologie.
-    * **Exemples :** `Python`, `React`, `Docker`, `Microsoft Excel`, `SAP`, `Agile`, `Silae`, `AWS`, `SQL`.
+    * **Exemples :** `Python`, `React`, `Docker`, `Microsoft Excel`, `SAP`, `Agile`, `Silae`, `AWS`, `SQL`. (Ces exemples peuvent rester car leur casse est spécifique et importante pour la reconnaissance initiale de l'IA).
+    * **Note importante sur la casse :** Concentre-toi sur la reconnaissance de la compétence, la normalisation finale de sa casse sera gérée en Python.
 
 2.  **CRITÈRE 2 : COMPÉTENCE D'ACTION**
     * Si l'expression n'est pas une technologie nommée, elle DOIT décrire un savoir-faire ou une action concrète. Les noms de concepts seuls sont invalides.
     * **Exemple fondamental :** "Gestion de la paie" est une compétence valide car "Gestion" est une action. "Paie" seul est un concept invalide et ne doit JAMAIS être extrait. "Intégration continue" est valide, "Intégration" seul est invalide.
     * Si tu trouves à la fois la compétence d'action et le concept (ex: "Gestion de la paie" et "Paie"), tu dois **uniquement** conserver la compétence d'action.
+    * **Note importante sur la casse :** Concentre-toi sur la reconnaissance de la compétence, la normalisation finale de sa casse sera gérée en Python.
 
 ## RÈGLES SECONDAIRES
-1.  **Normalisation** : Regroupe les variations d'une même compétence (ex: ["power bi", "PowerBI"] -> "Power BI").
-2.  **Gestion de la Casse** : Acronymes en majuscules (`SQL`, `AWS`); Noms propres avec la casse standard (`Python`); Compétences générales avec une majuscule au début (`Gestion de projet`).
+1.  **Gestion des doublons par description :** Si une même compétence (même si elle apparaît avec des variations de casse) est mentionnée plusieurs fois dans la MÊME description, tu ne DOIS l'extraire qu'une seule fois pour cette description. La déduplication finale et la normalisation de la casse seront gérées en Python.
 
 ## RÈGLES D'EXTRACTION DU NIVEAU D'ÉTUDES
 1.  **Priorité Absolue au Texte** : Ton analyse doit se baser **exclusivement** sur le texte de la description.

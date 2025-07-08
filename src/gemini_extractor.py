@@ -13,13 +13,14 @@ PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md')
 # --- État global du module ---
 model: Optional[genai.GenerativeModel] = None
 prompt_template: Optional[str] = None
-_current_logger: logging.Logger = logging.getLogger(__name__) # Logger par défaut du module
+_current_logger: logging.Logger = logging.getLogger(__name__) 
+
 
 def _load_prompt_from_file() -> Optional[str]:
     """Charge le template du prompt depuis le fichier prompt.md."""
     try:
         with open(PROMPT_FILE_PATH, 'r', encoding='utf-8') as f:
-            _current_logger.info(f"Gemini : Prompt chargé avec succès depuis '{PROMPT_FILE_PATH}'.")
+            _current_logger.info(f"Gemini : Prompt chargé avec succès depuis '{PROMPT_FILE_PATH}'.") 
             return f.read()
     except FileNotFoundError:
         _current_logger.critical(f"Gemini : Fichier de prompt non trouvé à l'emplacement '{PROMPT_FILE_PATH}' !")
@@ -76,7 +77,6 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
     :param logger: L'instance de logger à utiliser pour les messages.
     :return: Un dictionnaire contenant les données extraites, ou None en cas d'erreur.
     """
-    # Mettre à jour le logger interne pour cette exécution spécifique
     global _current_logger
     _current_logger = logger # S'assure que ce logger est utilisé pour les appels de log suivants
 
@@ -88,14 +88,16 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
     indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
     full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions)
 
-    _current_logger.info(f"Gemini : Appel API pour un lot de {len(descriptions)} descriptions (index {descriptions[0][:30]}...)...") # Plus détaillé
+    # Message de log plus précis pour le début de l'appel Gemini
+    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot de l'offre {descriptions[0][:50]}... )...") 
     try:
         response = await model.generate_content_async(full_prompt)
         
         cleaned_text = response.text.replace(r"\'", "'")
         skills_json = json.loads(cleaned_text)
         
-        _current_logger.info(f"Gemini : Réponse JSON reçue et parsée avec succès pour un lot de {len(descriptions)} offres.")
+        # Message de log pour la réception et le parsing de la réponse
+        _current_logger.info(f"Gemini : Réponse JSON reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
         return skills_json
         
     except json.JSONDecodeError as e:
