@@ -143,7 +143,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         with ui.row().classes('w-full justify-center gap-4 mb-2 flex-wrap'):
             ui.link('Export Excel', '/download/excel', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
-            ui.link('Export CSV', '/download/csv', new_tab=True).classes('no-underline bg-blue-grey-600 text-white px-4 py-2 rounded-lg hover:bg-blue-grey-700')
+            ui.link('Export CSV', '/download/csv', new_tab=True).classes('no-underline bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700')
 
         # --- Section Pagination du tableau ---
         pagination_state = {'page': 1, 'rows_per_page': 10}
