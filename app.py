@@ -4,8 +4,7 @@ import os
 import sys
 import io
 from typing import Dict, Any, List, Optional
-from nicegui import ui, app, run, Client # Importer Client explicitement
-from starlette.responses import Response
+from nicegui import ui, app, run, Client
 
 # Ajoute le répertoire 'src' au chemin pour permettre les imports locaux
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
@@ -33,7 +32,7 @@ class UiLogHandler(logging.Handler):
         try:
             msg = self.format(record)
             self.log_messages_list.append(msg)
-            if self.log_element: # S'assurer que l'élément UI existe
+            if self.log_element:
                 self.log_element.push(msg)
         except Exception as e:
             print(f"Error in UiLogHandler: {e}")
@@ -183,8 +182,15 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             row_key='competence'
         ).props('flat bordered').classes('w-full')
 
-        # Déclarer page_info_label ici, dans la même portée que update_table
-        page_info_label = ui.label() # Déclaration déplacée ici
+        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
+            btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
+            btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
+            
+            # Correction de l'emplacement: le label page_info_label est déclaré ici pour être dans le même scope que les boutons.
+            page_info_label = ui.label() 
+            
+            btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
+            btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
 
         def update_table():
             """Met à jour les lignes du tableau et l'état des boutons de pagination."""
@@ -196,13 +202,6 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             btn_prev.set_enabled(pagination_state['page'] > 1)
             btn_next.set_enabled(pagination_state['page'] < total_pages)
             btn_last.set_enabled(pagination_state['page'] < total_pages)
-
-        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
-            btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
-            btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
-            # page_info_label est maintenant défini avant
-            btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
-            btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
 
         update_table()
 
@@ -254,7 +253,7 @@ def main_page(client: Client): # Recevez le client directement ici
 
             try:
                 # Obtenir le stockage client directement depuis l'objet client de la page
-                client_storage_for_this_session = client.storage # Correction ici: pas de .user après .storage
+                client_storage_for_this_session = client.storage
 
                 # Afficher l'indicateur de chargement
                 results_container.clear()
