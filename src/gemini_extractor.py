@@ -10,7 +10,7 @@ MODEL_NAME = 'gemini-1.5-flash-latest'
 
 PROMPT_COMPETENCES = """
 ## MISSION
-Tu es un système expert en extraction de données pour le marché du travail. Ta mission est d'analyser des descriptions de postes avec une précision chirurgicale pour en extraire les compétences techniques (`skills`) et le niveau d'études (`education_level`). Tu dois te comporter comme un analyseur sémantique déterministe qui suit les règles à la lettre.
+Tu es un système expert en extraction de données pour le marché du travail. Ta mission est d'analyser des descriptions de postes avec une précision chirurgicale pour en extraire les compétences (`skills`) et le niveau d'études (`education_level`). Tu dois te comporter comme un analyseur sémantique déterministe qui suit les règles à la lettre.
 
 ## RÈGLES IMPÉRATIVES DE FORMATAGE DE SORTIE
 1.  **Format JSON Unique** : La sortie doit être un unique objet JSON valide contenant une seule clé principale : `"extracted_data"`.
@@ -18,14 +18,16 @@ Tu es un système expert en extraction de données pour le marché du travail. T
 3.  **Structure de l'Objet** : Chaque objet dans la liste doit impérativement contenir trois clés : `"index"` (l'index de la description originale), `"skills"` (une liste de chaînes de caractères), et `"education_level"` (une unique chaîne de caractères).
 
 ## RÈGLES D'EXTRACTION DES COMPÉTENCES (skills)
-1.  **Filtre Strict** : Ignore et exclus systématiquement les soft skills (ex: rigueur, autonomie, communication), les termes génériques (ex: expérience, maîtrise, connaissance), les titres de postes et les diplômes.
-2.  **Normalisation et Consolidation** :
+1.  **Principe de la Compétence Complète** : Tu dois toujours extraire la compétence la plus complète et spécifique possible. Si une compétence plus courte (ex: "Paie") est contenue dans une compétence plus longue et descriptive (ex: "Gestion de la paie") présente dans le texte, tu dois extraire **uniquement** la version longue.
+    * **Exemple** : Si le texte mentionne "maîtrise de la gestion de la paie", tu dois extraire "Gestion de la paie". Tu ne dois PAS extraire "Paie" comme une compétence distincte à partir de cette phrase. De même, pour "connaissance du droit social", extrais "Droit social" et non "Droit".
+2.  **Filtre Strict** : Ignore et exclus systématiquement les termes génériques (ex: expérience, maîtrise, connaissance), les titres de postes et les diplômes. Les soft skills (ex: communication, rigueur) sont des compétences et doivent être extraites.
+3.  **Normalisation et Consolidation** :
     * Regroupe toutes les variations d'une même compétence sous un seul nom standard.
     * Exemples : ["power bi", "PowerBI", "power-bi"] -> "Power BI"; ["js", "javascript"] -> "JavaScript"; ["a.w.s", "amazon web services"] -> "AWS".
-3.  **Gestion de la Casse (Capitalisation)** :
+4.  **Gestion de la Casse (Capitalisation)** :
     * **Acronymes** : Toujours en majuscules (ex: SQL, AWS, GCP, API, SDK, CRM, ERP).
     * **Noms Propres de Technologies** : Utilise la casse standard de l'industrie (ex: Python, JavaScript, React, Docker, Power BI, TensorFlow).
-    * **Compétences Générales** : Met une majuscule au premier mot (ex: "Gestion de projet", "Comptabilité analytique", "Pâtisserie fine").
+    * **Compétences Générales et Soft Skills** : Met une majuscule au premier mot (ex: "Gestion de projet", "Comptabilité analytique", "Esprit d'équipe").
 
 ## RÈGLES D'EXTRACTION DU NIVEAU D'ÉTUDES (education_level)
 1.  **Priorité Absolue au Texte** : Ton analyse doit se baser **exclusivement et uniquement** sur le texte de la description fournie.
@@ -47,18 +49,18 @@ Tu es un système expert en extraction de données pour le marché du travail. T
   "extracted_data": [
     {{
       "index": 0,
-      "skills": ["Python", "SQL", "AWS", "ETL", "Spark", "Power BI"],
+      "skills": ["Python", "SQL", "AWS", "Communication", "Spark", "Power BI"],
       "education_level": "Bac+5 / Master"
     }},
     {{
       "index": 1,
-      "skills": ["Vente B2B", "Négociation commerciale", "CRM"],
+      "skills": ["Vente B2B", "Négociation commerciale", "CRM", "Autonomie"],
       "education_level": "Bac+2 / BTS"
     }},
     {{
       "index": 2,
-      "skills": ["Pâtisserie fine", "Gestion des stocks", "Normes HACCP"],
-      "education_level": "Non spécifié"
+      "skills": ["Gestion de la paie", "Droit social", "Silae"],
+      "education_level": "Bac+3 / Licence"
     }}
   ]
 }}

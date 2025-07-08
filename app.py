@@ -231,7 +231,7 @@ def main_page():
 
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-center'):
-            ui.image('/assets/SkillScope.svg').classes('w-32 md:w-40')
+            ui.image('/assets/SkillScope.svg')
 
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
         ui.markdown("### Un outil d'analyse pour extraire et quantifier les compétences les plus demandées sur le marché de l'emploi.").classes('text-center font-light text-gray-800')
