@@ -142,10 +142,19 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             update_button_states()
 
         def update_button_states():
-            btn_first.disable(pagination_state['page'] == 1)
-            btn_prev.disable(pagination_state['page'] == 1)
-            btn_next.disable(pagination_state['page'] == total_pages)
-            btn_last.disable(pagination_state['page'] == total_pages)
+            if pagination_state['page'] == 1:
+                btn_first.disable()
+                btn_prev.disable()
+            else:
+                btn_first.enable()
+                btn_prev.enable()
+
+            if pagination_state['page'] == total_pages:
+                btn_next.disable()
+                btn_last.disable()
+            else:
+                btn_next.enable()
+                btn_last.enable()
 
         def go_to_first():
             pagination_state['page'] = 1
