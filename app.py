@@ -57,10 +57,7 @@ def download_csv_endpoint():
 @app.get('/debug')
 def debug_endpoint():
     df = getattr(app, 'latest_df', None)
-    if df is not None:
-        return {'status': 'OK', 'rows': len(df)}
-    else:
-        return {'status': 'NO DF'}
+    return {'status': 'OK', 'rows': len(df)} if df is not None else {'status': 'NO DF'}
 
 class UiLogHandler(logging.Handler):
     def __init__(self, log_element: ui.log, log_messages_list: list):
@@ -78,34 +75,7 @@ class UiLogHandler(logging.Handler):
 
 def format_skill_name(skill: str) -> str:
     known_acronyms = {'aws', 'gcp', 'sql', 'etl', 'api', 'rest', 'erp', 'crm', 'devops', 'qa', 'ux', 'ui', 'saas', 'cicd', 'kpi', 'sap'}
-    if skill.lower() in known_acronyms:
-        return skill.upper()
-    return skill.capitalize()
-
-async def run_analysis_logic(force_refresh: bool = False):
-    logger = logging.getLogger()
-    logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
-    if not job_input.value:
-        logger.warning("Analyse annulée : aucun métier n'a été entré.")
-        return
-    try:
-        results_container.clear()
-        with results_container:
-            with ui.card().classes('w-full p-4 items-center'):
-                ui.spinner(size='lg', color='primary')
-                ui.label("Analyse en cours...").classes('text-gray-600 mt-2')
-        job_value = job_input.value
-        logger.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
-        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
-        if results is None:
-            raise ValueError("Aucune offre ou compétence trouvée.")
-        display_results(results_container, results, job_value)
-    except Exception as e:
-        logger.critical(f"ERREUR CRITIQUE : {e}")
-        results_container.clear()
-        with results_container:
-            ui.label("Une erreur est survenue, veuillez réessayer.").classes('text-negative')
-    logger.info("--- FIN DU PROCESSUS ---")
+    return skill.upper() if skill.lower() in known_acronyms else skill.capitalize()
 
 def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
@@ -150,8 +120,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
 
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
-            ui.link('Export Excel', '/download/excel', new_tab=True).classes('q-btn q-btn--dense bg-green text-white w-40 cursor-pointer')
-            ui.link('Export CSV', '/download/csv', new_tab=True).classes('q-btn q-btn--dense bg-blue-grey text-white w-40 cursor-pointer')
+            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm cursor-pointer').props('icon="o_download"')
+            ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white cursor-pointer').props('icon="o_download"')
 
         pagination_state = {'page': 1, 'rows_per_page': 10}
         total_pages = max(1, (len(df) + pagination_state['rows_per_page'] - 1) // pagination_state['rows_per_page'])
@@ -172,31 +142,58 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             table.rows = df.iloc[start:end].to_dict(orient='records')
             table.update()
             page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
-            btn_first.disable(pagination_state['page'] == 1)
-            btn_prev.disable(pagination_state['page'] == 1)
-            btn_next.disable(pagination_state['page'] == total_pages)
-            btn_last.disable(pagination_state['page'] == total_pages)
+            btn_first.props(f'disable={str(pagination_state["page"] == 1).lower()}')
+            btn_prev.props(f'disable={str(pagination_state["page"] == 1).lower()}')
+            btn_next.props(f'disable={str(pagination_state["page"] == total_pages).lower()}')
+            btn_last.props(f'disable={str(pagination_state["page"] == total_pages).lower()}')
 
-        def go_to_page(page):
-            if 1 <= page <= total_pages:
-                pagination_state['page'] = page
-                update_table()
+        def go_to_first(): pagination_state.update(page=1); update_table()
+        def go_to_previous(): pagination_state.update(page=max(1, pagination_state['page'] - 1)); update_table()
+        def go_to_next(): pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)); update_table()
+        def go_to_last(): pagination_state.update(page=total_pages); update_table()
 
         with ui.row().classes('justify-center items-center gap-4 mt-4'):
-            btn_first = ui.button('<<', on_click=lambda: go_to_page(1))
-            btn_prev = ui.button('<', on_click=lambda: go_to_page(pagination_state['page'] - 1))
+            btn_first = ui.button('<<', on_click=go_to_first).props('flat dense color=black')
+            btn_prev = ui.button('<', on_click=go_to_previous).props('flat dense color=black')
             page_info_label = ui.label().classes('text-sm text-gray-700')
-            btn_next = ui.button('>', on_click=lambda: go_to_page(pagination_state['page'] + 1))
-            btn_last = ui.button('>>', on_click=lambda: go_to_page(total_pages))
+            btn_next = ui.button('>', on_click=go_to_next).props('flat dense color=black')
+            btn_last = ui.button('>>', on_click=go_to_last).props('flat dense color=black')
 
         update_table()
+
+    logger.info("Affichage des résultats : Fin de la fonction display_results.")
+
+async def run_analysis_logic(force_refresh: bool = False):
+    logger = logging.getLogger()
+    logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
+    if not job_input.value:
+        logger.warning("Analyse annulée : aucun métier n'a été entré.")
+        return
+    try:
+        results_container.clear()
+        with results_container:
+            with ui.card().classes('w-full p-4 items-center'):
+                ui.spinner(size='lg', color='primary')
+                ui.label("Analyse en cours...").classes('text-gray-600 mt-2')
+        job_value = job_input.value
+        logger.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
+        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
+        if results is None:
+            raise ValueError("Aucune offre ou compétence trouvée.")
+        display_results(results_container, results, job_value)
+    except Exception as e:
+        logger.critical(f"ERREUR CRITIQUE : {e}")
+        results_container.clear()
+        with results_container:
+            ui.label(f"Une erreur est survenue, veuillez réessayer.").classes('text-negative')
+    logger.info("--- FIN DU PROCESSUS ---")
 
 @ui.page('/')
 def main_page():
     global job_input, launch_button, results_container, log_view, all_log_messages
     ui.add_head_html('''
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link rel="shortcut icon" type="image/svg+xml" href="/assets/SkillScope.svg">
+        <link rel="icon" type="image/svg+xml" href="/assets/SkillScope.svg">
         <style>
             ::-webkit-scrollbar {
                 width: 8px;
