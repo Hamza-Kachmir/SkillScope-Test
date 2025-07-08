@@ -45,10 +45,11 @@ def _get_export_data():
     Récupère les données de la dernière analyse depuis le stockage de session de l'application.
     """
     # Récupérer les données depuis le storage de la session utilisateur
-    # ui.context.storage.user est fiable ici car ces endpoints sont déclenchés par le client
-    df = ui.context.storage.user.get('latest_df', None)
-    job_title = ui.context.storage.user.get('latest_job_title', 'Non spécifié')
-    actual_offers_count = ui.context.storage.user.get('latest_actual_offers_count', 0)
+    # Utiliser get_client() pour plus de robustesse
+    current_client_storage = ui.context.get_client().storage.user
+    df = current_client_storage.get('latest_df', None)
+    job_title = current_client_storage.get('latest_job_title', 'Non spécifié')
+    actual_offers_count = current_client_storage.get('latest_actual_offers_count', 0)
     
     if df is None or df.empty:
         return None, None, None
@@ -138,6 +139,9 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 
     formatted_skills = [{'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
+
+    # Les données pour l'export sont maintenant stockées dans handle_analysis_click.
+    # Cette fonction n'a plus besoin de le faire.
 
     with container:
         with ui.row().classes('w-full items-baseline'):
@@ -249,13 +253,14 @@ def main_page():
                     raise ValueError("Le pipeline n'a retourné aucun résultat ou a échoué.")
 
                 # Stocker les données pour l'export dans le stockage de session
-                # C'est ici que l'accès à ui.context.storage.user est le plus sûr
-                ui.context.storage.user['latest_df'] = pd.DataFrame([
+                # Utiliser ui.context.get_client().storage.user pour un accès plus robuste
+                current_client_storage = ui.context.get_client().storage.user # Accès plus sûr
+                current_client_storage['latest_df'] = pd.DataFrame([ #
                     {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
                     for i, item in enumerate(results.get('skills', []))
                 ])
-                ui.context.storage.user['latest_job_title'] = current_job_value
-                ui.context.storage.user['latest_actual_offers_count'] = results.get('actual_offers_count', 0)
+                current_client_storage['latest_job_title'] = current_job_value #
+                current_client_storage['latest_actual_offers_count'] = results.get('actual_offers_count', 0) #
 
                 # Afficher les résultats une fois l'analyse terminée
                 display_results(results_container, results, current_job_value)
