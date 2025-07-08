@@ -45,9 +45,8 @@ def _get_export_data():
     Récupère les données de la dernière analyse depuis le stockage de session de l'application.
     Utilise l'objet client de la session courante pour récupérer les données.
     """
-    # ui.context.client.storage.user est le plus robuste ici
-    # car ces endpoints sont toujours appelés dans un contexte de client actif.
-    current_client_storage = ui.context.client.storage.user 
+    # Correction: ui.context.client.storage est directement le user storage
+    current_client_storage = ui.context.client.storage 
     df = current_client_storage.get('latest_df', None)
     job_title = current_client_storage.get('latest_job_title', 'Non spécifié')
     actual_offers_count = current_client_storage.get('latest_actual_offers_count', 0)
@@ -122,18 +121,18 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
         return None
 
 
-def _store_results_for_client(client_storage: Any, results: Dict[str, Any], job_title: str):
+def _store_results_for_client(client_storage_obj: Any, results: Dict[str, Any], job_title: str):
     """
     Fonction pour stocker les résultats dans le stockage utilisateur du client.
-    Reçoit le stockage client explicitement.
+    Reçoit l'objet de stockage client (client.storage) explicitement.
     """
     df_to_store = pd.DataFrame([
         {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
         for i, item in enumerate(results.get('skills', []))
     ])
-    client_storage['latest_df'] = df_to_store
-    client_storage['latest_job_title'] = job_title
-    client_storage['latest_actual_offers_count'] = results.get('actual_offers_count', 0)
+    client_storage_obj['latest_df'] = df_to_store
+    client_storage_obj['latest_job_title'] = job_title
+    client_storage_obj['latest_actual_offers_count'] = results.get('actual_offers_count', 0)
 
 
 def display_results(container: ui.column, results_dict: Dict[str, Any], job_title: str):
@@ -245,10 +244,9 @@ def main_page(client: Client): # Recevez le client directement ici
                 return
 
             try:
-                # La meilleure approche: passer l'objet client au lieu de tenter de le récupérer via ui.context
-                # C'est parce que 'client' est passé comme argument à main_page() par NiceGUI
-                # et est donc garanti d'être le client de la session courante.
-                
+                # Obtenir le stockage client directement depuis l'objet client de la page
+                client_storage_for_this_session = client.storage # Correction ici: pas de .user après .storage
+
                 # Afficher l'indicateur de chargement
                 results_container.clear()
                 with results_container:
@@ -262,8 +260,8 @@ def main_page(client: Client): # Recevez le client directement ici
                 if results is None:
                     raise ValueError("Le pipeline n'a retourné aucun résultat ou a échoué.")
 
-                # Stocker les données pour l'export en utilisant l'objet 'client' directement
-                _store_results_for_client(client.storage.user, results, current_job_value)
+                # Stocker les données pour l'export en utilisant l'objet 'client_storage_for_this_session'
+                _store_results_for_client(client_storage_for_this_session, results, current_job_value)
 
                 # Afficher les résultats une fois l'analyse terminée
                 display_results(results_container, results, current_job_value)
