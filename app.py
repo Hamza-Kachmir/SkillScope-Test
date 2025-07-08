@@ -14,8 +14,13 @@ from src.cache_manager import flush_all_cache
 
 # --- Constantes de configuration ---
 NB_OFFERS_TO_ANALYZE = 100 # Nombre d'offres à analyser par défaut
-# En mode test, nous définissons explicitement IS_PRODUCTION_MODE à False
-IS_PRODUCTION_MODE = False
+IS_PRODUCTION_MODE = False # En mode test, nous définissons explicitement IS_PRODUCTION_MODE à False
+
+# --- Stockage Temporaire Global pour l'Export (À améliorer pour la production) ---
+# Ceci est une solution temporaire pour contourner le problème de contexte dans _get_export_data
+# et faire fonctionner l'export pour le TEST. Pour la production, une vraie gestion de session
+# sur les routes FastAPI serait nécessaire, ou un téléchargement via websocket.
+_export_data_storage: Dict[str, Dict[str, Any]] = {}
 
 
 # --- Gestionnaires de logs pour l'UI ---
@@ -25,41 +30,49 @@ class UiLogHandler(logging.Handler):
         super().__init__()
         self.log_element = log_element
         self.log_messages_list = log_messages_list
-        # Utiliser un formateur pour s'assurer que les messages sont cohérents
-        self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
 
     def emit(self, record):
         """Formate et pousse un enregistrement de log vers l'interface."""
         try:
-            msg = self.format(record) # Format the record
+            msg = self.format(record)
             self.log_messages_list.append(msg)
-            # Vérifier si l'élément UI existe et est valide avant de pousser
             if self.log_element and hasattr(self.log_element, 'push'):
                 self.log_element.push(msg)
         except Exception as e:
-            # En dernier recours, si le logging de l'UI échoue, on utilise print
             print(f"Error in UiLogHandler: {e}")
 
 
 # --- Points de terminaison (API Endpoints) ---
 def _get_export_data():
     """
-    Récupère les données de la dernière analyse depuis le stockage de session de l'application.
-    Utilise l'objet client de la session courante pour récupérer les données.
+    Récupère les données de la dernière analyse depuis le stockage temporaire global.
+    Utilise l'ID de la session client comme clé.
     """
-    current_client_storage = ui.context.client.storage 
-    df = current_client_storage.get('latest_df', None)
-    job_title = current_client_storage.get('latest_job_title', 'Non spécifié')
-    actual_offers_count = current_client_storage.get('latest_actual_offers_count', 0)
-    
-    if df is None:
-        # Retourne un DataFrame vide si df est None pour éviter des erreurs plus tard
-        df = pd.DataFrame() 
-    
-    if df.empty: # Si après vérif, c'est vide, retourne None pour l'export.
-        return None, None, None
+    # Tente de récupérer l'ID du client de la session NiceGUI via le cookie
+    # NOTE: Ceci est une solution de contournement pour le test.
+    client_id = None
+    try:
+        if ui.context.client and ui.context.client.id:
+            client_id = ui.context.client.id
+    except RuntimeError:
+        # Si ui.context.client n'est pas disponible (ex: appel direct depuis l'API sans WebSocket)
+        # On tente de récupérer l'ID via le cookie HTTP si NiceGUI l'a défini
+        # C'est une heuristique, pas une garantie, car le cookie peut ne pas être présent ou être obsolète.
+        from fastapi import Request
+        request: Request = ui.context.get_client().request # Tente de récupérer la requête Fastapi
+        if request and 'nicegui_cid' in request.cookies:
+            client_id = request.cookies['nicegui_cid']
 
-    return df, job_title, actual_offers_count
+    if client_id and client_id in _export_data_storage:
+        data = _export_data_storage[client_id]
+        df = data.get('df')
+        job_title = data.get('job_title')
+        offers_count = data.get('actual_offers_count')
+        return df, job_title, offers_count
+    
+    return None, None, None
+
 
 @app.get('/download/excel')
 def download_excel_endpoint():
@@ -76,7 +89,9 @@ def download_excel_endpoint():
             []
         ])
         header_info.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0)
-        df.to_excel(writer, index=False, sheet_name='Resultats', startrow=len(header_info)-1)
+        # S'assurer que le DataFrame est traité même s'il est vide pour l'export
+        if not df.empty:
+            df.to_excel(writer, index=False, sheet_name='Resultats', startrow=len(header_info)-1)
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
@@ -94,7 +109,10 @@ def download_csv_endpoint():
         f"Offres Analysees: {offers_count}",
         ""
     ]
-    csv_data = "\n".join(header_lines) + "\n" + df.to_csv(index=False, encoding='utf-8')
+    # S'assurer que le DataFrame est traité même s'il est vide pour l'export
+    csv_data = "\n".join(header_lines) + "\n"
+    if not df.empty:
+        csv_data += df.to_csv(index=False, encoding='utf-8')
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
     return Response(content=csv_data.encode('utf-8'), media_type='text/csv', headers=headers)
@@ -113,11 +131,9 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
 
     try:
         logger_instance.info(f"Appel du pipeline pour '{job_input_val}' avec {NB_OFFERS_TO_ANALYZE} offres.")
-        # Appel à get_skills_for_job qui gère les appels à Gemini et France Travail
         results = await get_skills_for_job(job_input_val, NB_OFFERS_TO_ANALYZE, logger_instance)
         
         if results is None:
-            # Gérer le cas où le pipeline retourne None sans lever d'exception
             logger_instance.warning("Le pipeline n'a retourné aucun résultat pour la recherche.")
             return None
         
@@ -129,18 +145,19 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
         return None
 
 
-def _store_results_for_client(client_storage_obj: Any, results: Dict[str, Any], job_title: str):
+def _store_results_for_client_export(client_id: str, results: Dict[str, Any], job_title: str):
     """
-    Fonction pour stocker les résultats dans le stockage utilisateur du client.
-    Reçoit l'objet de stockage client (client.storage) explicitement.
+    Fonction pour stocker les résultats dans le stockage temporaire global pour l'export.
     """
     df_to_store = pd.DataFrame([
         {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
         for i, item in enumerate(results.get('skills', []))
     ])
-    client_storage_obj['latest_df'] = df_to_store
-    client_storage_obj['latest_job_title'] = job_title
-    client_storage_obj['latest_actual_offers_count'] = results.get('actual_offers_count', 0)
+    _export_data_storage[client_id] = {
+        'df': df_to_store,
+        'job_title': job_title,
+        'actual_offers_count': results.get('actual_offers_count', 0)
+    }
 
 
 def display_results(container: ui.column, results_dict: Dict[str, Any], job_title: str):
@@ -186,7 +203,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             columns=[
                 {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'style': 'width: 10%'},
                 {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'style': 'width: 70%'},
-                {'name': 'frequence', 'label': 'Fréquence', 'align': 'left', 'style': 'width: 20%'},
+                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
             ],
             rows=[],
             row_key='competence'
@@ -207,6 +224,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
             end = start + pagination_state['rows_per_page']
             table.rows = df.iloc[start:end].to_dict('records')
+            # Assurez-vous que page_info_label est bien défini et un objet ui.label
             page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
             btn_first.set_enabled(pagination_state['page'] > 1)
             btn_prev.set_enabled(pagination_state['page'] > 1)
@@ -229,20 +247,12 @@ def main_page(client: Client):
     session_logger.setLevel(logging.INFO) # Garder à INFO pour le mode test
 
     # S'assurer que le logger racine propage les messages aux handlers (y compris session_logger si configuré)
-    # et qu'il n'y a pas d'autres handlers par défaut qui pourraient intercepter.
     root_logger = logging.getLogger()
     if not root_logger.handlers: # Seulement si aucun handler n'est configuré pour le root logger
-        # Créer un StreamHandler pour que les logs aillent aussi en console/fichier de l'hébergeur
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
         root_logger.addHandler(console_handler)
-    root_logger.setLevel(logging.INFO) # S'assurer que le root logger est au moins au niveau INFO
-
-    # NOTE: `propagate = True` par défaut pour les loggers enfants, donc session_logger
-    # devrait recevoir les messages du root_logger.
-    # Pour s'assurer que le session_logger est le SEUL à gérer les logs pour son nom,
-    # on peut potentiellement mettre `session_logger.propagate = False` si on gère tout via son handler,
-    # mais pour l'instant, laissons-le propaguer au root_logger pour la console de Render.
+    root_logger.setLevel(logging.INFO) 
 
 
     # --- Configuration de la page et des styles CSS ---
@@ -250,7 +260,10 @@ def main_page(client: Client):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             .no-underline { text-decoration: none !important; }
-            .link-hover:hover { text-decoration: underline !important; }
+            /* Empêche le soulignement des liens au survol, sauf si une autre classe l'ajoute explicitement */
+            a { text-decoration: none !important; }
+            a:hover { text-decoration: none !important; }
+            .link-hover:hover { text-decoration: underline !important; } /* Garde la classe link-hover si voulue ailleurs */
         </style>
     ''')
     app.add_static_files('/assets', 'assets')
@@ -279,8 +292,8 @@ def main_page(client: Client):
                 return
 
             try:
-                # Obtenir le stockage client directement depuis l'objet client de la page
-                client_storage_for_this_session = client.storage
+                # Récupérer l'ID du client pour stocker les données d'export globalement par session
+                client_id_for_export = client.id
 
                 # Afficher l'indicateur de chargement
                 results_container.clear()
@@ -300,8 +313,8 @@ def main_page(client: Client):
                         ui.label(f"Aucun résultat trouvé pour '{current_job_value}'.").classes('text-negative')
                     return
 
-                # Stocker les données pour l'export en utilisant l'objet 'client_storage_for_this_session'
-                _store_results_for_client(client_storage_for_this_session, results, current_job_value)
+                # Stocker les données pour l'export via le stockage temporaire global
+                _store_results_for_client_export(client_id_for_export, results, current_job_value)
 
                 # Afficher les résultats une fois l'analyse terminée
                 display_results(results_container, results, current_job_value)
@@ -325,8 +338,9 @@ def main_page(client: Client):
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
             ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
             with ui.row().classes('gap-4 mt-2'):
-                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" class="link-hover" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
-                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" class="link-hover" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
+                # Suppression de la classe link-hover ici
+                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold;">Portfolio</a>')
+                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold;">LinkedIn</a>')
 
         # --- Section "Logs" extensible (toujours affichée en mode test) ---
         with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
@@ -336,7 +350,6 @@ def main_page(client: Client):
                     ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever')
                     ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
             
-            # Assurez-vous que le handler est attaché uniquement à session_logger
             session_logger.addHandler(UiLogHandler(log_view, all_log_messages))
 
 
