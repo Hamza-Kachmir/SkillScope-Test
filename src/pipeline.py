@@ -8,11 +8,8 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # --- Constantes du Pipeline ---
-GEMINI_BATCH_SIZE = 15
+GEMINI_BATCH_SIZE = 5  # Chaque lot traitera 5 descriptions (pour 100 offres, cela fait 20 lots/agents)
 TOP_SKILLS_LIMIT = 30
-
-# Suppression de SPECIAL_CASING_RULES et _normalize_skill_casing
-# La normalisation de la casse est désormais entièrement gérée par Gemini via le prompt.
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
     """Divise une liste en sous-listes (chunks) de taille fixe)."""
@@ -32,8 +29,6 @@ def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
     for result_batch in filter(None, batch_results):
         if 'extracted_data' in result_batch:
             for data_entry in result_batch['extracted_data']:
-                # Les compétences sont censées être déjà normalisées en casse par Gemini.
-                # Nous utilisons un set pour la déduplication par offre (insensible à la casse si Gemini fait son travail).
                 unique_skills_in_description = set(s.strip() for s in data_entry.get('skills', []) if s.strip())
                 for skill_name in unique_skills_in_description:
                     skill_frequencies[skill_name] += 1
@@ -52,15 +47,17 @@ def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
 async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Logger) -> Optional[Dict[str, Any]]:
     """
     Orchestre le processus complet : cache, recherche, extraction et agrégation.
+    Le job_title passé ici est déjà normalisé (minuscules, sans accents).
 
-    :param job_title: Le métier à analyser.
+    :param job_title: Le métier à analyser (déjà normalisé).
     :param num_offers: Le nombre d'offres à viser pour l'analyse.
     :param logger: L'instance de logger pour le suivi.
     :return: Un dictionnaire avec les résultats finaux, ou None si le processus échoue.
     """
     logger.info(f"--- Début du processus pour '{job_title}' ({num_offers} offres) ---")
     
-    cache_key = f"{job_title.lower().strip()}@{num_offers}"
+    # La clé de cache est construite directement à partir du job_title normalisé
+    cache_key = f"{job_title}@{num_offers}" 
     cached_results = get_cached_results(cache_key)
     if cached_results:
         logger.info(f"Résultats trouvés dans le cache pour '{cache_key}'. Fin du processus.")
@@ -73,7 +70,8 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
 
     logger.info(f"Appel à l'API France Travail pour '{job_title}'.")
     ft_client = FranceTravailClient(logger=logger) 
-    all_offers = await ft_client.search_offers_async(job_title, max_offers=num_offers)
+    # La recherche FT se fait avec le terme normalisé
+    all_offers = await ft_client.search_offers_async(job_title, max_offers=num_offers) 
     
     if not all_offers:
         logger.warning("Aucune offre France Travail trouvée. Fin du processus.")
@@ -86,7 +84,7 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     logger.info(f"{len(all_offers)} offres trouvées, dont {len(descriptions)} avec une description valide.")
 
     description_chunks = _chunk_list(descriptions, GEMINI_BATCH_SIZE)
-    logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle (taille de lot: {GEMINI_BATCH_SIZE}).") # Log plus détaillé
+    logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle (taille de lot: {GEMINI_BATCH_SIZE}).") 
     
     tasks = [extract_skills_with_gemini(job_title, chunk, logger) for chunk in description_chunks] 
     batch_results = await asyncio.gather(*tasks)

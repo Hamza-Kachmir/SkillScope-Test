@@ -3,7 +3,8 @@ import logging
 import os
 import sys
 import io
-import asyncio # <-- NOUVEL IMPORT
+import asyncio
+import unicodedata # <-- NOUVEL IMPORT pour la normalisation des accents
 from typing import Dict, Any, List, Optional
 from nicegui import ui, app, run, Client
 from starlette.responses import Response
@@ -24,9 +25,21 @@ IS_PRODUCTION_MODE = False # En mode test, nous définissons explicitement IS_PR
 _export_data_storage: Dict[str, Dict[str, Any]] = {}
 
 # --- Verrouillage des Recherches Concurrentes ---
-# Ce dictionnaire va stocker les Futures des recherches actives pour un métier donné.
-# Si une recherche est en cours pour un métier, les requêtes suivantes pour ce même métier attendront.
 _active_searches: Dict[str, asyncio.Future] = {}
+
+# --- Fonction de Normalisation des Termes de Recherche ---
+def _normalize_search_term(term: str) -> str:
+    """
+    Normalise une chaîne de caractères pour être utilisée comme clé de recherche/cache.
+    Convertit en minuscules, supprime les accents et les espaces superflus.
+    Ex: "Développeur Web" -> "developpeur web"
+    """
+    # 1. Normalisation Unicode (pour décomposer les caractères accentués)
+    normalized_term = unicodedata.normalize('NFKD', term)
+    # 2. Encodage en ASCII (pour supprimer les accents et autres caractères non-ASCII)
+    # et décodage en UTF-8, puis conversion en minuscules et suppression des espaces.
+    normalized_term = normalized_term.encode('ascii', 'ignore').decode('utf-8').lower().strip()
+    return normalized_term
 
 
 # --- Gestionnaires de logs pour l'UI ---
@@ -109,7 +122,7 @@ def download_csv_endpoint(client_id: str):
 async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Logger) -> Optional[Dict[str, Any]]:
     """
     Fonction interne pour exécuter le pipeline d'analyse et retourner les résultats bruts.
-    Séparée de la logique d'affichage et de gestion du contexte UI.
+    Le job_input_val est déjà normalisé (minuscules, sans accents) à ce stade.
     """
     logger_instance.info("--- Début du pipeline d'analyse ---")
     if not job_input_val:
@@ -118,6 +131,7 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
 
     try:
         logger_instance.info(f"Appel du pipeline pour '{job_input_val}' avec {NB_OFFERS_TO_ANALYZE} offres.")
+        # Le job_input_val passé ici est déjà normalisé pour la recherche et la clé de cache.
         results = await get_skills_for_job(job_input_val, NB_OFFERS_TO_ANALYZE, logger_instance)
         
         if results is None:
@@ -132,24 +146,30 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
         return None
 
 
-def _store_results_for_client_export(client_id: str, results: Dict[str, Any], job_title: str):
+def _store_results_for_client_export(client_id: str, results: Dict[str, Any], job_title_original: str): # Renommé pour clarté
     """
     Fonction pour stocker les résultats dans le stockage global par ID de client.
+    Utilise le job_title_original pour l'affichage dans l'export, mais la clé est normalisée.
     """
     df_to_store = pd.DataFrame([
         {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
         for i, item in enumerate(results.get('skills', []))
     ])
+    
+    # La clé de stockage sera la version normalisée du métier
+    normalized_job_title_key = _normalize_search_term(job_title_original)
+    
     _export_data_storage[client_id] = {
         'df': df_to_store,
-        'job_title': job_title,
+        'job_title': job_title_original, # Stocker la version originale pour l'affichage dans l'export
         'actual_offers_count': results.get('actual_offers_count', 0)
     }
 
 
-def display_results(container: ui.column, results_dict: Dict[str, Any], job_title: str):
+def display_results(container: ui.column, results_dict: Dict[str, Any], job_title_original: str): # Renommé pour clarté
     """
     Construit dynamiquement la section des résultats dans l'interface.
+    Utilise job_title_original pour l'affichage.
     """
     container.clear()
 
@@ -167,7 +187,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 
     with container:
         with ui.row().classes('w-full items-baseline'):
-            ui.label(f"Synthèse pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
+            ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800') # Afficher l'original
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
         with ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
@@ -274,45 +294,47 @@ def main_page(client: Client):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-full text-lg')
         
         async def handle_analysis_click():
-            current_job_value = job_input.value.strip().lower() # Normaliser la clé de recherche
-            session_logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
+            # Terme de recherche original de l'utilisateur (pour l'affichage)
+            original_job_term = job_input.value 
+            # Terme de recherche normalisé (pour la logique interne et le cache)
+            normalized_job_term = _normalize_search_term(original_job_term)
             
-            if not current_job_value:
+            session_logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
+            session_logger.info(f"Terme original: '{original_job_term}', Terme normalisé: '{normalized_job_term}'")
+            
+            if not original_job_term: # Toujours vérifier l'original pour l'input vide
                 session_logger.warning("Analyse annulée : aucun métier n'a été entré.")
                 return
 
-            # Vérifier si une recherche identique est déjà en cours
-            if current_job_value in _active_searches:
-                session_logger.info(f"Recherche pour '{current_job_value}' déjà en cours. Patientez...")
-                # Afficher un message à l'utilisateur
+            # Vérifier si une recherche identique (normalisée) est déjà en cours
+            if normalized_job_term in _active_searches:
+                session_logger.info(f"Recherche pour '{normalized_job_term}' (original: '{original_job_term}') déjà en cours. Patientez...")
                 results_container.clear()
                 with results_container:
-                    ui.label(f"Une analyse pour '{job_input.value}' est déjà en cours. Veuillez patienter...").classes('text-gray-600 mt-4 text-lg')
+                    ui.label(f"Une analyse pour '{original_job_term}' est déjà en cours. Veuillez patienter...").classes('text-gray-600 mt-4 text-lg')
                 
-                # Attendre la fin de la recherche déjà lancée
                 try:
-                    await _active_searches[current_job_value]
-                    session_logger.info(f"Reprise de la session après attente pour '{current_job_value}'. Les résultats seront servis via le cache.")
-                    # Redéclencher la logique d'affichage, qui utilisera le cache maintenant
-                    # ou simplement indiquer que l'utilisateur peut relancer
-                    results_for_display = await _run_analysis_pipeline(current_job_value, session_logger)
+                    await _active_searches[normalized_job_term] # Attendre la Future de la recherche en cours
+                    session_logger.info(f"Reprise de la session après attente pour '{normalized_job_term}'. Les résultats seront servis via le cache.")
+                    # Après l'attente, les résultats devraient être dans le cache.
+                    # On relance le pipeline pour qu'il récupère du cache et affiche.
+                    results_for_display = await _run_analysis_pipeline(normalized_job_term, session_logger)
                     if results_for_display:
-                         _store_results_for_client_export(client.id, results_for_display, job_input.value)
-                         display_results(results_container, results_for_display, job_input.value)
+                         _store_results_for_client_export(client.id, results_for_display, original_job_term)
+                         display_results(results_container, results_for_display, original_job_term)
                     else:
-                        raise ValueError("La recherche a été lancée mais n'a pas produit de résultats valides.")
+                        raise ValueError("La recherche a été lancée mais n'a pas produit de résultats valides après attente.")
                     
                 except Exception as e:
-                    session_logger.error(f"Erreur lors de l'attente de la recherche en cours pour '{current_job_value}': {e}", exc_info=True)
+                    session_logger.error(f"Erreur lors de l'attente de la recherche en cours pour '{normalized_job_term}': {e}", exc_info=True)
                     results_container.clear()
                     with results_container:
                         ui.label(f"Une erreur est survenue lors de l'attente de l'analyse : {e}").classes('text-negative')
                 return
 
             # Si aucune recherche identique n'est en cours, créer une nouvelle Future et la stocker
-            # Cela permet aux requêtes concurrentes d'attendre cette Future.
             search_future = asyncio.Future()
-            _active_searches[current_job_value] = search_future
+            _active_searches[normalized_job_term] = search_future # La clé est le terme normalisé
 
             try:
                 client_id_for_export = client.id
@@ -321,20 +343,23 @@ def main_page(client: Client):
                 with results_container:
                     with ui.column().classes('w-full p-4 items-center'):
                         ui.spinner(size='lg', color='primary')
-                        ui.html(f"Analyse en cours pour <strong>'{job_input.value}'</strong>...").classes('text-gray-600 mt-4 text-lg') # Utiliser job_input.value pour l'affichage (casse originale)
+                        ui.html(f"Analyse en cours pour <strong>'{original_job_term}'</strong>...").classes('text-gray-600 mt-4 text-lg') 
 
-                results = await _run_analysis_pipeline(current_job_value, session_logger) # Passer current_job_value (normalisé) au pipeline
+                # Exécuter le pipeline d'analyse avec le terme normalisé
+                results = await _run_analysis_pipeline(normalized_job_term, session_logger) 
                 
                 if results is None:
                     session_logger.error("Le pipeline n'a retourné aucun résultat exploitable.")
                     results_container.clear()
                     with results_container:
-                        ui.label(f"Aucun résultat trouvé pour '{job_input.value}'.").classes('text-negative')
+                        ui.label(f"Aucun résultat trouvé pour '{original_job_term}'.").classes('text-negative')
                     return
 
-                _store_results_for_client_export(client_id_for_export, results, job_input.value) # Utiliser job_input.value pour l'affichage (casse originale)
+                # Stocker les données pour l'export en utilisant l'ID client et le terme ORIGINAL
+                _store_results_for_client_export(client_id_for_export, results, original_job_term) 
 
-                display_results(results_container, results, job_input.value) # Utiliser job_input.value pour l'affichage (casse originale)
+                # Afficher les résultats avec le terme ORIGINAL pour l'affichage
+                display_results(results_container, results, original_job_term) 
 
             except Exception as e:
                 session_logger.critical(f"ERREUR CRITIQUE PENDANT L'ANALYSE : {e}", exc_info=True)
@@ -344,8 +369,10 @@ def main_page(client: Client):
             finally:
                 # Marquer la Future comme terminée, qu'elle ait réussi ou échoué
                 if not search_future.done():
-                    search_future.set_result(True) # Ou set_exception(e) en cas d'erreur spécifique
-                del _active_searches[current_job_value] # Retirer le verrou
+                    search_future.set_result(True) 
+                # Retirer le verrou en utilisant la clé normalisée
+                if normalized_job_term in _active_searches:
+                    del _active_searches[normalized_job_term] 
 
             session_logger.info("--- FIN DU PROCESSUS ---")
 
