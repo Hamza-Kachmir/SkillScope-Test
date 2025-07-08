@@ -56,24 +56,20 @@ def _normalize_search_term(term: str) -> str:
 class UiLogHandler(logging.Handler):
     """
     Un gestionnaire de logs personnalisé qui pousse les messages vers un élément `ui.log` de NiceGUI
-    (pour le développeur) et met à jour l'UI de progression pour l'utilisateur final.
+    (pour le développeur).
     Il est robuste face aux déconnexions de clients.
     """
-    def __init__(self, log_element: ui.log, log_messages_list: list, progress_label: ui.label, progress_bar: ui.linear_progress):
+    def __init__(self, log_element: ui.log, log_messages_list: list): # progress_label et progress_bar retirés
         super().__init__()
         self.log_element = log_element
         self.log_messages_list = log_messages_list
-        self.progress_label = progress_label
-        self.progress_bar = progress_bar
         # Définit le format des messages de log affichés dans l'UI développeur.
-        # CHANGEMENT ICI : Formateur plus simple pour les logs affichés dans l'UI
         self.setFormatter(logging.Formatter('%(message)s')) # Affiche seulement le message
 
     def emit(self, record):
         """
         Formate un enregistrement de log et tente de le pousser vers l'interface utilisateur.
         Si le client est déconnecté, le message est imprimé dans la console de secours.
-        Les messages structurés mettent à jour la progression visible par l'utilisateur.
         """
         try:
             msg = self.format(record)
@@ -83,16 +79,8 @@ class UiLogHandler(logging.Handler):
             if not IS_PRODUCTION_MODE and self.log_element and hasattr(self.log_element, 'push') and self.log_element.client.has_socket_connection:
                 self.log_element.push(msg)
             
-            # Gère les messages de progression pour l'utilisateur final
-            if isinstance(record.msg, dict) and 'type' in record.msg:
-                if record.msg['type'] == 'user_progress':
-                    self.progress_label.text = record.msg['message']
-                    if 'value' in record.msg:
-                        self.progress_bar.value = record.msg['value']
-                    ui.run_javascript('setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 50);') # Scroll vers le bas pour voir la progression
-                elif record.msg['type'] == 'user_progress_reset':
-                    self.progress_label.text = ""
-                    self.progress_bar.value = 0
+            # Les messages de progression structurés ne sont plus gérés ici pour l'affichage utilisateur,
+            # car l'affichage est simplifié au spinner + texte unique.
             
         except Exception as e:
             print(f"Erreur dans UiLogHandler: {e}")
@@ -178,29 +166,25 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
     :param logger_instance: L'instance de logger spécifique à la session.
     :return: Le dictionnaire de résultats agrégés, ou None en cas d'échec.
     """
-    logger_instance.info({'type': 'user_progress', 'message': 'Démarrage de l\'analyse...', 'value': 0.05})
-    logger_instance.info(f"Début du pipeline d'analyse.")
+    # Ces logs sont pour le développement, ils n'affectent pas l'affichage utilisateur direct
+    logger_instance.info(f"Début du pipeline d'analyse pour '{job_input_val}'.")
     if not job_input_val:
         logger_instance.warning("Analyse annulée dans le pipeline : aucun métier n'a été entré.")
         return None
 
     try:
-        logger_instance.info({'type': 'user_progress', 'message': f'Recherche des offres d\'emploi pour "{job_input_val}"...', 'value': 0.1})
-        logger_instance.info(f"Appel du pipeline pour '{job_input_val}' avec {NB_OFFERS_TO_ANALYZE} offres.")
+        logger_instance.info(f'Recherche des offres d\'emploi pour "{job_input_val}"...')
         results = await get_skills_for_job(job_input_val, NB_OFFERS_TO_ANALYZE, logger_instance)
         
         if results is None:
             logger_instance.warning("Le pipeline n'a retourné aucun résultat pour la recherche.")
-            logger_instance.info({'type': 'user_progress', 'message': 'Aucun résultat trouvé.', 'value': 1.0})
             return None
         
-        logger_instance.info({'type': 'user_progress', 'message': 'Analyse terminée ! Préparation de l\'affichage des résultats...', 'value': 1.0})
-        logger_instance.info(f"Fin du pipeline d'analyse pour '{job_input_val}'.")
+        logger_instance.info(f"Analyse terminée pour '{job_input_val}'.")
         return results
 
     except Exception as e:
         logger_instance.critical(f"ERREUR CRITIQUE DANS LE PIPELINE D'ANALYSE : {e}", exc_info=True)
-        logger_instance.info({'type': 'user_progress', 'message': 'Une erreur est survenue pendant l\'analyse.', 'value': 0.0}) # Reset bar on error
         return None
 
 
@@ -233,7 +217,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
     :param results_dict: Le dictionnaire de résultats agrégés à afficher.
     :param job_title_original: Le terme de métier original (non normalisé) pour l'affichage.
     """
-    container.clear()
+    container.clear() # S'assure que le contenu précédent est effacé avant d'afficher les résultats.
 
     skills_data = results_dict.get('skills', [])
     top_diploma = results_dict.get('top_diploma', 'Non précisé')
@@ -248,16 +232,15 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
     df = pd.DataFrame(formatted_skills)
 
     with container:
-        # Correction de la syntaxe ici (ajout de 'with' et suppression du ':' après classes)
         with ui.row().classes('w-full items-baseline'):
             ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
-        with ui.row().classes('w-full mt-4 gap-4 flex-wrap'): # Correction : ajout de 'with'
-            with ui.card().classes('items-center p-4 w-full sm:flex-1'): # Correction : ajout de 'with'
+        with ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
                 ui.label(formatted_skills[0]['competence']).classes('text-2xl font-bold text-center text-blue-600')
-            with ui.card().classes('items-center p-4 w-full sm:flex-1'): # Correction : ajout de 'with'
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
         
@@ -280,7 +263,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             row_key='competence'
         ).props('flat bordered').classes('w-full')
 
-        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'): # Correction : ajout de 'with'
+        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
             btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
             btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
             
@@ -314,9 +297,9 @@ def main_page(client: Client):
     job_input: ui.input = None
     results_container: ui.column = None
     
-    # NOUVEAUX ÉLÉMENTS UI pour la progression utilisateur
-    progress_label: ui.label = None
-    progress_bar: ui.linear_progress = None
+    # progress_label et progress_bar ne sont plus des éléments UI visibles pour la progression utilisateur
+    # mais peuvent être conservés comme variables locales si nécessaire pour d'autres usages.
+    # Pour un affichage minimaliste, ils ne sont plus créés ici.
 
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session UI.
@@ -423,21 +406,19 @@ def main_page(client: Client):
             try:
                 client_id_for_export = client.id
 
-                # Affiche l'UI de progression au lieu du simple spinner
+                # Affiche l'UI de progression simplifiée (spinner + message)
                 results_container.clear()
                 with results_container:
                     with ui.column().classes('w-full p-4 items-center'):
-                        ui.spinner(size='lg', color='primary')
+                        ui.spinner(size='lg', color='primary') # Le spinner que vous voulez garder
                         ui.html(f"Analyse en cours pour <strong>'{original_job_term}'</strong>...").classes('text-gray-600 mt-4 text-lg')
-                        # Nouveaux éléments pour la progression visible par l'utilisateur
-                        nonlocal progress_label, progress_bar
-                        progress_label = ui.label().classes('text-gray-600 text-base mt-2 text-center')
-                        progress_bar = ui.linear_progress(value=0, color='blue').classes('w-full mt-2')
+                        # Plus de progress_label ou progress_bar ici pour l'utilisateur.
+                        # Ces éléments sont supprimés de l'interface utilisateur.
 
-                # Attache le handler de log de l'UI aux NOUVEAUX éléments de progression
-                # Ce handler est temporaire et sera retiré après l'analyse.
-                ui_progress_handler = UiLogHandler(log_view, all_log_messages, progress_label, progress_bar)
-                session_logger.addHandler(ui_progress_handler)
+                # Attache le handler de log de l'UI.
+                # Il ne mettra plus à jour de barres de progression utilisateur.
+                ui_log_handler_instance = UiLogHandler(log_view, all_log_messages)
+                session_logger.addHandler(ui_log_handler_instance)
                 
                 # Exécute le pipeline d'analyse avec le terme normalisé.
                 results = await _run_analysis_pipeline(normalized_job_term, session_logger)
@@ -451,6 +432,7 @@ def main_page(client: Client):
 
                 _store_results_for_client_export(client_id_for_export, results, original_job_term)
 
+                # Affiche les résultats complets (tableau, synthèses) une fois l'analyse terminée.
                 display_results(results_container, results, original_job_term)
 
             except Exception as e:
@@ -459,11 +441,9 @@ def main_page(client: Client):
                 with results_container:
                     ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
             finally:
-                # Réinitialiser la barre de progression et le label après la fin de l'analyse (succès ou échec).
-                session_logger.info({'type': 'user_progress_reset'})
                 # Détacher le handler temporaire pour éviter les fuites de mémoire.
-                if ui_progress_handler in session_logger.handlers:
-                    session_logger.removeHandler(ui_progress_handler)
+                if ui_log_handler_instance in session_logger.handlers:
+                    session_logger.removeHandler(ui_log_handler_instance)
 
                 # Marque la Future comme terminée (succès ou échec) et retire le verrou.
                 if not search_future.done():
@@ -497,8 +477,8 @@ def main_page(client: Client):
                         ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
-                # Créer des dummy elements pour éviter des erreurs si non utilisés en mode dev.
-                session_logger.addHandler(UiLogHandler(log_view, all_log_messages, progress_label=ui.label(), progress_bar=ui.linear_progress(value=0)))
+                # Il n'a plus besoin des éléments de progression utilisateur.
+                session_logger.addHandler(UiLogHandler(log_view, all_log_messages))
         else:
             # En mode production, les logs techniques ne sont pas affichés dans l'UI.
             pass
