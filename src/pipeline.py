@@ -8,7 +8,7 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # --- Constantes du Pipeline ---
-GEMINI_BATCH_SIZE = 5  # Chaque lot traitera 5 descriptions (pour 100 offres, cela fait 20 lots/agents)
+GEMINI_BATCH_SIZE = 20  # Chaque lot traitera 5 descriptions (pour 100 offres, cela fait 20 lots/agents)
 TOP_SKILLS_LIMIT = 30
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
