@@ -3,11 +3,10 @@ import logging
 import os
 import sys
 import io
-from nicegui import ui, app, run
+from nicegui import ui, app
 from starlette.responses import Response
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
-
 from pipeline import get_skills_for_job
 from src.cache_manager import flush_all_cache
 
@@ -83,6 +82,31 @@ def format_skill_name(skill: str) -> str:
         return skill.upper()
     return skill.capitalize()
 
+async def run_analysis_logic(force_refresh: bool = False):
+    logger = logging.getLogger()
+    logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
+    if not job_input.value:
+        logger.warning("Analyse annulée : aucun métier n'a été entré.")
+        return
+    try:
+        results_container.clear()
+        with results_container:
+            with ui.card().classes('w-full p-4 items-center'):
+                ui.spinner(size='lg', color='primary')
+                ui.label("Analyse en cours...").classes('text-gray-600 mt-2')
+        job_value = job_input.value
+        logger.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
+        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
+        if results is None:
+            raise ValueError("Aucune offre ou compétence trouvée.")
+        display_results(results_container, results, job_value)
+    except Exception as e:
+        logger.critical(f"ERREUR CRITIQUE : {e}")
+        results_container.clear()
+        with results_container:
+            ui.label("Une erreur est survenue, veuillez réessayer.").classes('text-negative')
+    logger.info("--- FIN DU PROCESSUS ---")
+
 def display_results(container: ui.column, results_dict: dict, job_title: str):
     logger = logging.getLogger()
     logger.info("Affichage des résultats : Début de la fonction display_results.")
@@ -126,8 +150,8 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
 
         with ui.row().classes('w-full justify-end gap-2 mb-2'):
-            ui.link('Export Excel', '/download/excel', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-green text-white q-mr-sm').props('icon=\"o_download\"')
-            ui.link('Export CSV', '/download/csv', new_tab=True).props('dense').classes('q-btn q-btn--dense bg-blue-grey text-white').props('icon=\"o_download\"')
+            ui.link('Export Excel', '/download/excel', new_tab=True).classes('q-btn q-btn--dense bg-green text-white w-40 cursor-pointer')
+            ui.link('Export CSV', '/download/csv', new_tab=True).classes('q-btn q-btn--dense bg-blue-grey text-white w-40 cursor-pointer')
 
         pagination_state = {'page': 1, 'rows_per_page': 10}
         total_pages = max(1, (len(df) + pagination_state['rows_per_page'] - 1) // pagination_state['rows_per_page'])
@@ -148,69 +172,31 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             table.rows = df.iloc[start:end].to_dict(orient='records')
             table.update()
             page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
+            btn_first.disable(pagination_state['page'] == 1)
+            btn_prev.disable(pagination_state['page'] == 1)
+            btn_next.disable(pagination_state['page'] == total_pages)
+            btn_last.disable(pagination_state['page'] == total_pages)
 
-        def go_to_first():
-            if pagination_state['page'] > 1:
-                pagination_state['page'] = 1
-                update_table()
-
-        def go_to_previous():
-            if pagination_state['page'] > 1:
-                pagination_state['page'] -= 1
-                update_table()
-
-        def go_to_next():
-            if pagination_state['page'] < total_pages:
-                pagination_state['page'] += 1
-                update_table()
-
-        def go_to_last():
-            if pagination_state['page'] < total_pages:
-                pagination_state['page'] = total_pages
+        def go_to_page(page):
+            if 1 <= page <= total_pages:
+                pagination_state['page'] = page
                 update_table()
 
         with ui.row().classes('justify-center items-center gap-4 mt-4'):
-            ui.button('<<', on_click=go_to_first).props('flat dense color=black')
-            ui.button('<', on_click=go_to_previous).props('flat dense color=black')
+            btn_first = ui.button('<<', on_click=lambda: go_to_page(1))
+            btn_prev = ui.button('<', on_click=lambda: go_to_page(pagination_state['page'] - 1))
             page_info_label = ui.label().classes('text-sm text-gray-700')
-            ui.button('>', on_click=go_to_next).props('flat dense color=black')
-            ui.button('>>', on_click=go_to_last).props('flat dense color=black')
+            btn_next = ui.button('>', on_click=lambda: go_to_page(pagination_state['page'] + 1))
+            btn_last = ui.button('>>', on_click=lambda: go_to_page(total_pages))
 
         update_table()
-
-    logger.info("Affichage des résultats : Fin de la fonction display_results.")
-
-async def run_analysis_logic(force_refresh: bool = False):
-    logger = logging.getLogger()
-    logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
-    if not job_input.value:
-        logger.warning("Analyse annulée : aucun métier n'a été entré.")
-        return
-    try:
-        results_container.clear()
-        with results_container:
-            with ui.card().classes('w-full p-4 items-center'):
-                ui.spinner(size='lg', color='primary')
-                ui.label("Analyse en cours...").classes('text-gray-600 mt-2')
-        job_value = job_input.value
-        logger.info(f"Appel du pipeline pour '{job_value}' avec {NB_OFFERS_TO_ANALYZE} offres.")
-        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
-        if results is None:
-            raise ValueError("Aucune offre ou compétence trouvée.")
-        display_results(results_container, results, job_value)
-    except Exception as e:
-        logger.critical(f"ERREUR CRITIQUE : {e}")
-        results_container.clear()
-        with results_container:
-            ui.label(f"Une erreur est survenue, veuillez réessayer.").classes('text-negative')
-    logger.info("--- FIN DU PROCESSUS ---")
 
 @ui.page('/')
 def main_page():
     global job_input, launch_button, results_container, log_view, all_log_messages
     ui.add_head_html('''
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link rel="icon" type="image/svg+xml" href="/assets/SkillScope.svg">
+        <link rel="shortcut icon" type="image/svg+xml" href="/assets/SkillScope.svg">
         <style>
             ::-webkit-scrollbar {
                 width: 8px;
@@ -245,7 +231,7 @@ def main_page():
             with ui.column().classes('w-full p-2'):
                 log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
                 ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever').classes('mt-2')
-                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
+                ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\n".join(all_log_messages)}`)'), icon='o_content_copy').classes('mt-2')
             handler = UiLogHandler(log_view, all_log_messages)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
