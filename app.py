@@ -125,9 +125,9 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
 
         table = ui.table(
             columns=[
-                {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left'},
-                {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left'},
-                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left'},
+                {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'style': 'width: 10%'},
+                {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'style': 'width: 70%'},
+                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
             ],
             rows=[],
             row_key='competence',
@@ -174,7 +174,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             pagination_state['page'] = total_pages
             update_table()
 
-        with ui.row().classes('justify-center items-center gap-4 mt-4'):
+        with ui.row().classes('w-full justify-center items-center gap-4 mt-4'):
             btn_first = ui.button('<<', on_click=go_to_first).props('flat dense color=black')
             btn_prev = ui.button('<', on_click=go_to_previous).props('flat dense color=black')
             page_info_label = ui.label().classes('text-sm text-gray-700')
@@ -268,4 +268,4 @@ def main_page():
 
 
 port = int(os.environ.get('PORT', 10000))
-ui.run(host='0.0.0.0', port=port, title='SkillScope | Analyse de compétences')
+ui.run(host='0.0.0.0', port=port, title='SkillScope | Analyse de compétences', favicon='assets/SkillScope.svg')
