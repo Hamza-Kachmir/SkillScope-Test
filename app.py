@@ -5,6 +5,9 @@ import sys
 import io
 from typing import Dict, Any, List, Optional
 from nicegui import ui, app, run, Client
+from starlette.responses import Response
+from starlette.requests import Request # Importer Request explicitement pour le type hint
+
 
 # Ajoute le répertoire 'src' au chemin pour permettre les imports locaux
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
@@ -16,10 +19,9 @@ from src.cache_manager import flush_all_cache
 NB_OFFERS_TO_ANALYZE = 100 # Nombre d'offres à analyser par défaut
 IS_PRODUCTION_MODE = False # En mode test, nous définissons explicitement IS_PRODUCTION_MODE à False
 
-# --- Stockage Temporaire Global pour l'Export (À améliorer pour la production) ---
-# Ceci est une solution temporaire pour contourner le problème de contexte dans _get_export_data
-# et faire fonctionner l'export pour le TEST. Pour la production, une vraie gestion de session
-# sur les routes FastAPI serait nécessaire, ou un téléchargement via websocket.
+# --- Stockage Global pour l'Export (par ID de Client/Session) ---
+# Ce dictionnaire stockera les données d'export, indexées par l'ID unique de chaque client/session NiceGUI.
+# Cela permet d'isoler les données d'export entre utilisateurs.
 _export_data_storage: Dict[str, Dict[str, Any]] = {}
 
 
@@ -44,41 +46,20 @@ class UiLogHandler(logging.Handler):
 
 
 # --- Points de terminaison (API Endpoints) ---
-def _get_export_data():
-    """
-    Récupère les données de la dernière analyse depuis le stockage temporaire global.
-    Utilise l'ID de la session client comme clé.
-    """
-    # Tente de récupérer l'ID du client de la session NiceGUI via le cookie
-    # NOTE: Ceci est une solution de contournement pour le test.
-    client_id = None
-    try:
-        if ui.context.client and ui.context.client.id:
-            client_id = ui.context.client.id
-    except RuntimeError:
-        # Si ui.context.client n'est pas disponible (ex: appel direct depuis l'API sans WebSocket)
-        # On tente de récupérer l'ID via le cookie HTTP si NiceGUI l'a défini
-        # C'est une heuristique, pas une garantie, car le cookie peut ne pas être présent ou être obsolète.
-        from fastapi import Request
-        request: Request = ui.context.get_client().request # Tente de récupérer la requête Fastapi
-        if request and 'nicegui_cid' in request.cookies:
-            client_id = request.cookies['nicegui_cid']
-
-    if client_id and client_id in _export_data_storage:
-        data = _export_data_storage[client_id]
-        df = data.get('df')
-        job_title = data.get('job_title')
-        offers_count = data.get('actual_offers_count')
-        return df, job_title, offers_count
-    
-    return None, None, None
-
-
-@app.get('/download/excel')
-def download_excel_endpoint():
+# MODIFICATION : La route prend l'ID du client en paramètre pour récupérer les données.
+@app.get('/download/excel/{client_id}') # <-- Ajout de client_id dans l'URL
+def download_excel_endpoint(client_id: str): # <-- client_id est un paramètre de fonction
     """Point de terminaison pour télécharger les résultats au format Excel."""
-    df, job_title, offers_count = _get_export_data()
-    if df is None:
+    if client_id not in _export_data_storage:
+        logging.warning(f"Export requested for unknown client_id: {client_id}")
+        return Response("Aucune donnée à exporter ou session expirée.", media_type='text/plain', status_code=404)
+    
+    data = _export_data_storage[client_id]
+    df = data.get('df')
+    job_title = data.get('job_title', 'Non spécifié')
+    offers_count = data.get('actual_offers_count', 0)
+
+    if df is None or df.empty:
         return Response("Aucune donnée à exporter.", media_type='text/plain', status_code=404)
 
     output = io.BytesIO()
@@ -89,19 +70,25 @@ def download_excel_endpoint():
             []
         ])
         header_info.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0)
-        # S'assurer que le DataFrame est traité même s'il est vide pour l'export
-        if not df.empty:
-            df.to_excel(writer, index=False, sheet_name='Resultats', startrow=len(header_info)-1)
+        df.to_excel(writer, index=False, sheet_name='Resultats', startrow=len(header_info)-1)
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
 
-@app.get('/download/csv')
-def download_csv_endpoint():
+@app.get('/download/csv/{client_id}') # <-- Ajout de client_id dans l'URL
+def download_csv_endpoint(client_id: str): # <-- client_id est un paramètre de fonction
     """Point de terminaison pour télécharger les résultats au format CSV."""
-    df, job_title, offers_count = _get_export_data()
-    if df is None:
+    if client_id not in _export_data_storage:
+        logging.warning(f"Export requested for unknown client_id: {client_id}")
+        return Response("Aucune donnée à exporter ou session expirée.", media_type='text/plain', status_code=404)
+
+    data = _export_data_storage[client_id]
+    df = data.get('df')
+    job_title = data.get('job_title', 'Non spécifié')
+    offers_count = data.get('actual_offers_count', 0)
+
+    if df is None or df.empty:
         return Response("Aucune donnée à exporter.", media_type='text/plain', status_code=404)
     
     header_lines = [
@@ -109,10 +96,7 @@ def download_csv_endpoint():
         f"Offres Analysees: {offers_count}",
         ""
     ]
-    # S'assurer que le DataFrame est traité même s'il est vide pour l'export
-    csv_data = "\n".join(header_lines) + "\n"
-    if not df.empty:
-        csv_data += df.to_csv(index=False, encoding='utf-8')
+    csv_data = "\n".join(header_lines) + "\n" + df.to_csv(index=False, encoding='utf-8')
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
     return Response(content=csv_data.encode('utf-8'), media_type='text/csv', headers=headers)
@@ -147,7 +131,7 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
 
 def _store_results_for_client_export(client_id: str, results: Dict[str, Any], job_title: str):
     """
-    Fonction pour stocker les résultats dans le stockage temporaire global pour l'export.
+    Fonction pour stocker les résultats dans le stockage global par ID de client.
     """
     df_to_store = pd.DataFrame([
         {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
@@ -193,8 +177,11 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
         
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         with ui.row().classes('w-full justify-center gap-4 mb-2 flex-wrap'):
-            ui.link('Export Excel', '/download/excel', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
-            ui.link('Export CSV', '/download/csv', new_tab=True).classes('no-underline bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700')
+            # MODIFICATION : Les liens d'export incluent maintenant l'ID du client
+            # Cela est rendu possible par le fait que cette fonction display_results est appelée
+            # dans le contexte de la session, où ui.context.client.id est fiable.
+            ui.link('Export Excel', f'/download/excel/{ui.context.client.id}', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
+            ui.link('Export CSV', f'/download/csv/{ui.context.client.id}', new_tab=True).classes('no-underline bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700')
 
         pagination_state = {'page': 1, 'rows_per_page': 10}
         total_pages = max(1, (len(df) - 1) // pagination_state['rows_per_page'] + 1)
@@ -203,7 +190,8 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             columns=[
                 {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'style': 'width: 10%'},
                 {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'style': 'width: 70%'},
-                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
+                # Fréquence est une colonne de type nombre, donc elle s'affichera normalement
+                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'}, 
             ],
             rows=[],
             row_key='competence'
@@ -214,7 +202,7 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
             btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
             
-            page_info_label = ui.label() # Déclaration et création du label ici
+            page_info_label = ui.label() 
             
             btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
             btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
@@ -224,7 +212,6 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
             end = start + pagination_state['rows_per_page']
             table.rows = df.iloc[start:end].to_dict('records')
-            # Assurez-vous que page_info_label est bien défini et un objet ui.label
             page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
             btn_first.set_enabled(pagination_state['page'] > 1)
             btn_prev.set_enabled(pagination_state['page'] > 1)
@@ -248,7 +235,7 @@ def main_page(client: Client):
 
     # S'assurer que le logger racine propage les messages aux handlers (y compris session_logger si configuré)
     root_logger = logging.getLogger()
-    if not root_logger.handlers: # Seulement si aucun handler n'est configuré pour le root logger
+    if not root_logger.handlers:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
         root_logger.addHandler(console_handler)
@@ -260,10 +247,15 @@ def main_page(client: Client):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             .no-underline { text-decoration: none !important; }
-            /* Empêche le soulignement des liens au survol, sauf si une autre classe l'ajoute explicitement */
-            a { text-decoration: none !important; }
-            a:hover { text-decoration: none !important; }
-            .link-hover:hover { text-decoration: underline !important; } /* Garde la classe link-hover si voulue ailleurs */
+            /* Règle CSS plus spécifique pour les liens dans le pied de page */
+            .footer-links a { 
+                text-decoration: none !important; 
+                color: #2474c5; /* Couleur par défaut */
+                font-weight: bold;
+            }
+            .footer-links a:hover { 
+                text-decoration: none !important; /* Pas de soulignement au survol */
+            }
         </style>
     ''')
     app.add_static_files('/assets', 'assets')
@@ -306,7 +298,6 @@ def main_page(client: Client):
                 results = await _run_analysis_pipeline(current_job_value, session_logger)
                 
                 if results is None:
-                    # Gérer le cas où le pipeline retourne None sans lever d'exception
                     session_logger.error("Le pipeline n'a retourné aucun résultat exploitable.")
                     results_container.clear()
                     with results_container:
@@ -335,12 +326,12 @@ def main_page(client: Client):
         results_container = ui.column().classes('w-full mt-6')
 
         # --- Pied de page et liens externes ---
+        # Ajout d'une classe 'footer-links' pour cibler le CSS
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
             ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
-            with ui.row().classes('gap-4 mt-2'):
-                # Suppression de la classe link-hover ici
-                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold;">Portfolio</a>')
-                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold;">LinkedIn</a>')
+            with ui.row().classes('gap-4 mt-2 footer-links'): # <-- Ajout de la classe 'footer-links'
+                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>') # <-- Suppression du style inline
+                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>') # <-- Suppression du style inline
 
         # --- Section "Logs" extensible (toujours affichée en mode test) ---
         with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
