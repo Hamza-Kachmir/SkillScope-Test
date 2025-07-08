@@ -12,11 +12,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 from pipeline import get_skills_for_job
 from src.cache_manager import flush_all_cache
 
-# --- Constantes de configuration ---
-NB_OFFERS_TO_ANALYZE = 100
-
 # --- État global de l'interface ---
 job_input = None
+offers_select = None  # Nouveau sélecteur pour le nombre d'offres
 results_container = None
 log_view = None
 all_log_messages = []
@@ -91,7 +89,7 @@ def download_csv_endpoint():
     return Response(content=csv_data.encode('utf-8'), media_type='text/csv', headers=headers)
 
 
-# --- Logique principale de l'application ---
+# --- Logique d'affichage et d'analyse ---
 def display_results(container: ui.column, results_dict: dict, job_title: str):
     """Affiche les résultats de l'analyse dans l'interface utilisateur."""
     container.clear()
@@ -108,15 +106,18 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
     formatted_skills = [{'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
 
+    # Stockage des données pour les points d'export
     app.latest_df = df
     app.latest_job_title = job_title
     app.latest_actual_offers_count = actual_offers
 
     with container:
+        # En-tête des résultats
         with ui.row().classes('w-full items-baseline'):
             ui.label(f"Synthèse pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
+        # Cartes de résumé
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):
             with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
@@ -126,11 +127,13 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
 
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
-        # CORRECTION : Les deux boutons sont présents et leur style est corrigé.
-        with ui.row().classes('w-full justify-center gap-4 mb-2'):
+        
+        # Boutons d'export
+        with ui.row().classes('w-full justify-center gap-4 mb-2 flex-wrap'):
             ui.link('Export Excel', '/download/excel', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
             ui.link('Export CSV', '/download/csv', new_tab=True).classes('no-underline bg-blue-grey-600 text-white px-4 py-2 rounded-lg hover:bg-blue-grey-700')
 
+        # Logique de pagination du tableau
         pagination_state = {'page': 1, 'rows_per_page': 10}
         total_pages = max(1, (len(df) - 1) // pagination_state['rows_per_page'] + 1)
         
@@ -145,6 +148,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
         ).props('flat bordered').classes('w-full')
 
         def update_table():
+            """Met à jour les lignes du tableau et les boutons de pagination."""
             start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
             end = start + pagination_state['rows_per_page']
             table.rows = df.iloc[start:end].to_dict('records')
@@ -154,7 +158,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
             btn_next.set_enabled(pagination_state['page'] < total_pages)
             btn_last.set_enabled(pagination_state['page'] < total_pages)
 
-        # CORRECTION : La couleur des boutons de pagination est forcée à 'black'.
+        # Contrôles de pagination
         with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
             btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
             btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
@@ -171,26 +175,26 @@ async def run_analysis_logic():
     logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
     
     job_value = job_input.value
+    num_offers = offers_select.value
     if not job_value:
         logger.warning("Analyse annulée : aucun métier n'a été entré.")
         return
 
     try:
-        # CORRECTION : Indicateur de chargement simplifié
+        # Indicateur de chargement simplifié
         results_container.clear()
         with results_container:
             with ui.column().classes('w-full p-4 items-center'):
                 ui.spinner(size='lg', color='primary')
                 ui.html(f"Analyse en cours pour <strong>'{job_value}'</strong>...").classes('text-gray-600 mt-4 text-lg')
 
-        # Lancer le pipeline sans le callback de progression
-        logger.info(f"Appel du pipeline pour '{job_value}'.")
-        results = await get_skills_for_job(job_value, NB_OFFERS_TO_ANALYZE, logger)
+        # Lancer le pipeline avec le nombre d'offres sélectionné
+        logger.info(f"Appel du pipeline pour '{job_value}' avec {num_offers} offres.")
+        results = await get_skills_for_job(job_value, num_offers, logger)
         
         if results is None:
             raise ValueError("Le pipeline n'a retourné aucun résultat.")
 
-        # Afficher les résultats une fois terminés
         display_results(results_container, results, job_value)
 
     except Exception as e:
@@ -205,9 +209,9 @@ async def run_analysis_logic():
 @ui.page('/')
 def main_page():
     """Construit et configure la page principale de l'application."""
-    global job_input, results_container, log_view, all_log_messages
+    global job_input, offers_select, results_container, log_view, all_log_messages
 
-    # CORRECTION : Ajout du style pour enlever le soulignement des liens d'export.
+    # Ajout du style pour enlever le soulignement des liens
     ui.add_head_html('''
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>.no-underline { text-decoration: none !important; }</style>
@@ -215,28 +219,45 @@ def main_page():
     app.add_static_files('/assets', 'assets')
     ui.query('body').style('background-color: #f8fafc;')
 
+    # --- En-tête ---
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-center'):
             ui.image('/assets/SkillScope.svg').classes('w-40 md:w-48')
 
+    # --- Contenu principal ---
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
         ui.markdown("### Un outil pour quantifier les compétences les plus demandées sur le marché de l'emploi.").classes('text-center font-light text-gray-800')
         ui.html("<i>Basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
-        # CORRECTION : La barre de recherche n'est plus dans une carte.
-        with ui.column().classes('w-full max-w-lg items-center'):
+        # --- Section de recherche ---
+        with ui.column().classes('w-full max-w-lg items-center gap-4'):
             job_input = ui.input(placeholder="Chercher un métier...").props('outlined dense clearable').classes('w-full text-lg')
-            launch_button = ui.button("Lancer l'analyse", on_click=run_analysis_logic).props('color=primary no-caps').classes('w-full mt-2')
+            
+            with ui.row().classes('w-full items-center justify-between'):
+                # Sélecteur pour le nombre d'offres
+                offers_select = ui.select(
+                    options={50: '50 offres', 100: '100 offres', 150: '150 offres'},
+                    value=100,
+                    label='Profondeur d\'analyse'
+                ).props('dense outlined').classes('w-48')
+                
+                # Bouton de lancement
+                launch_button = ui.button("Lancer l'analyse", on_click=run_analysis_logic).props('color=primary no-caps')
+
+            # Le bouton est actif seulement si un métier est tapé
             launch_button.bind_enabled_from(job_input, 'value', backward=bool)
 
+        # Conteneur pour les résultats
         results_container = ui.column().classes('w-full mt-6')
 
+        # --- Pied de page ---
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
             ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
             with ui.row().classes('gap-4 mt-2'):
                 ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">Portfolio</a>')
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank" style="color: #2474c5; font-weight: bold; text-decoration: none;">LinkedIn</a>')
 
+        # --- Section Logs ---
         with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
             with ui.column().classes('w-full p-2'):
                 log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs')
@@ -244,6 +265,7 @@ def main_page():
                     ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever')
                     ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
             
+            # Configuration du logging vers l'UI
             handler = UiLogHandler(log_view, all_log_messages)
             logger = logging.getLogger()
             logger.setLevel(logging.INFO)
