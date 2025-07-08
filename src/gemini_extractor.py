@@ -29,7 +29,7 @@ def _load_prompt_from_file() -> Optional[str]:
         _current_logger.critical(f"Gemini : Erreur lors de la lecture du fichier de prompt : {e}")
         return None
 
-def initialize_gemini(logger: logging.Logger) -> bool: # Accepte un logger
+def initialize_gemini(logger: logging.Logger) -> bool: 
     """
     Initialise le client Gemini et charge le prompt.
     Doit être appelée avant toute tentative d'extraction.
@@ -88,15 +88,13 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
     indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
     full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions)
 
-    # Message de log plus précis pour le début de l'appel Gemini
-    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot de l'offre {descriptions[0][:50]}... )...") 
+    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}')...") 
     try:
         response = await model.generate_content_async(full_prompt)
         
         cleaned_text = response.text.replace(r"\'", "'")
         skills_json = json.loads(cleaned_text)
         
-        # Message de log pour la réception et le parsing de la réponse
         _current_logger.info(f"Gemini : Réponse JSON reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
         return skills_json
         

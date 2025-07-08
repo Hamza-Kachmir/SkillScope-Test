@@ -8,53 +8,20 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # --- Constantes du Pipeline ---
-GEMINI_BATCH_SIZE = 5
+GEMINI_BATCH_SIZE = 5  # Chaque lot traitera 5 descriptions (pour 100 offres, cela fait 20 lots/agents)
 TOP_SKILLS_LIMIT = 30
 
-# Liste d'acronymes et de technologies spécifiques qui doivent garder leur casse
-# ou être normalisés vers une casse spécifique (si non capturé par l'IA)
-# Ceci est un exemple, la liste pourrait être plus exhaustive
-SPECIAL_CASING_RULES = {
-    "aws": "AWS",
-    "sql": "SQL",
-    "powerbi": "Power BI",
-    "azure": "Azure",
-    "gcp": "GCP",
-    "devops": "DevOps",
-    "agile": "Agile",
-    "scrum": "Scrum",
-    "erp": "ERP",
-    "crm": "CRM"
-}
-
-def _normalize_skill_casing(skill_name: str) -> str:
-    """
-    Normalise la casse d'une compétence.
-    - Met la première lettre en majuscule pour les compétences générales.
-    - Applique des règles spécifiques pour les acronymes/technologies connues.
-    """
-    skill_lower = skill_name.lower().strip()
-    
-    # Appliquer les règles de casse spéciales en premier
-    if skill_lower in SPECIAL_CASING_RULES:
-        return SPECIAL_CASING_RULES[skill_lower]
-    
-    # Si la compétence est une séquence de caractères tout en majuscules (ex: "API", "RPA")
-    # et n'est pas dans nos règles spéciales, on la laisse telle quelle.
-    if skill_lower.upper() == skill_name.strip():
-        return skill_name.strip()
-
-    # Pour les compétences générales, première lettre en majuscule
-    return skill_name.strip().capitalize()
+# Suppression de SPECIAL_CASING_RULES et _normalize_skill_casing
+# La normalisation de la casse est désormais entièrement gérée par Gemini via le prompt.
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
-    """Divise une liste en sous-listes (chunks) de taille fixe."""
+    """Divise une liste en sous-listes (chunks) de taille fixe)."""
     return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
     """
     Agrège et compte les compétences et niveaux d'études des différents lots Gemini.
-    Applique une normalisation de casse aux compétences avant de les compter.
+    Les compétences sont déjà normalisées en casse par Gemini avant cette étape.
 
     :param batch_results: Une liste de résultats bruts provenant des appels à Gemini.
     :return: Un dictionnaire contenant les compétences et le diplôme agrégés.
@@ -65,11 +32,10 @@ def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
     for result_batch in filter(None, batch_results):
         if 'extracted_data' in result_batch:
             for data_entry in result_batch['extracted_data']:
-                # Normaliser la casse de chaque compétence AVANT de l'ajouter au set
-                normalized_skills_in_description = set(
-                    _normalize_skill_casing(s) for s in data_entry.get('skills', []) if s.strip()
-                )
-                for skill_name in normalized_skills_in_description:
+                # Les compétences sont censées être déjà normalisées en casse par Gemini.
+                # Nous utilisons un set pour la déduplication par offre (insensible à la casse si Gemini fait son travail).
+                unique_skills_in_description = set(s.strip() for s in data_entry.get('skills', []) if s.strip())
+                for skill_name in unique_skills_in_description:
                     skill_frequencies[skill_name] += 1
                 
                 education_level = data_entry.get('education_level', 'Non spécifié')
@@ -120,13 +86,13 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     logger.info(f"{len(all_offers)} offres trouvées, dont {len(descriptions)} avec une description valide.")
 
     description_chunks = _chunk_list(descriptions, GEMINI_BATCH_SIZE)
-    logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle.")
+    logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle (taille de lot: {GEMINI_BATCH_SIZE}).") # Log plus détaillé
     
     tasks = [extract_skills_with_gemini(job_title, chunk, logger) for chunk in description_chunks] 
     batch_results = await asyncio.gather(*tasks)
     
     logger.info("Fusion et comptage des résultats de tous les lots...")
-    aggregated_data = _aggregate_results(batch_results) # Normalisation de la casse appliquée ici
+    aggregated_data = _aggregate_results(batch_results) 
     
     if not aggregated_data.get("skills"):
         logger.error("L'analyse n'a produit aucune compétence. Fin du processus.")

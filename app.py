@@ -6,7 +6,7 @@ import io
 from typing import Dict, Any, List, Optional
 from nicegui import ui, app, run, Client
 from starlette.responses import Response
-from starlette.requests import Request # Importer Request explicitement pour le type hint
+from starlette.requests import Request
 
 
 # Ajoute le répertoire 'src' au chemin pour permettre les imports locaux
@@ -20,8 +20,6 @@ NB_OFFERS_TO_ANALYZE = 100 # Nombre d'offres à analyser par défaut
 IS_PRODUCTION_MODE = False # En mode test, nous définissons explicitement IS_PRODUCTION_MODE à False
 
 # --- Stockage Global pour l'Export (par ID de Client/Session) ---
-# Ce dictionnaire stockera les données d'export, indexées par l'ID unique de chaque client/session NiceGUI.
-# Cela permet d'isoler les données d'export entre utilisateurs.
 _export_data_storage: Dict[str, Dict[str, Any]] = {}
 
 
@@ -46,12 +44,11 @@ class UiLogHandler(logging.Handler):
 
 
 # --- Points de terminaison (API Endpoints) ---
-# MODIFICATION : La route prend l'ID du client en paramètre pour récupérer les données.
-@app.get('/download/excel/{client_id}') # <-- Ajout de client_id dans l'URL
-def download_excel_endpoint(client_id: str): # <-- client_id est un paramètre de fonction
+@app.get('/download/excel/{client_id}') 
+def download_excel_endpoint(client_id: str): 
     """Point de terminaison pour télécharger les résultats au format Excel."""
     if client_id not in _export_data_storage:
-        logging.warning(f"Export requested for unknown client_id: {client_id}")
+        logging.warning(f"Export Excel requested for unknown or expired client_id: {client_id}")
         return Response("Aucune donnée à exporter ou session expirée.", media_type='text/plain', status_code=404)
     
     data = _export_data_storage[client_id]
@@ -76,11 +73,11 @@ def download_excel_endpoint(client_id: str): # <-- client_id est un paramètre d
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
 
-@app.get('/download/csv/{client_id}') # <-- Ajout de client_id dans l'URL
-def download_csv_endpoint(client_id: str): # <-- client_id est un paramètre de fonction
+@app.get('/download/csv/{client_id}') 
+def download_csv_endpoint(client_id: str): 
     """Point de terminaison pour télécharger les résultats au format CSV."""
     if client_id not in _export_data_storage:
-        logging.warning(f"Export requested for unknown client_id: {client_id}")
+        logging.warning(f"Export CSV requested for unknown or expired client_id: {client_id}")
         return Response("Aucune donnée à exporter ou session expirée.", media_type='text/plain', status_code=404)
 
     data = _export_data_storage[client_id]
@@ -177,11 +174,9 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
         
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         with ui.row().classes('w-full justify-center gap-4 mb-2 flex-wrap'):
-            # MODIFICATION : Les liens d'export incluent maintenant l'ID du client
-            # Cela est rendu possible par le fait que cette fonction display_results est appelée
-            # dans le contexte de la session, où ui.context.client.id est fiable.
-            ui.link('Export Excel', f'/download/excel/{ui.context.client.id}', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
-            ui.link('Export CSV', f'/download/csv/{ui.context.client.id}', new_tab=True).classes('no-underline bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700')
+            client_id = ui.context.client.id 
+            ui.link('Export Excel', f'/download/excel/{client_id}', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
+            ui.link('Export CSV', f'/download/csv/{client_id}', new_tab=True).classes('no-underline bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700')
 
         pagination_state = {'page': 1, 'rows_per_page': 10}
         total_pages = max(1, (len(df) - 1) // pagination_state['rows_per_page'] + 1)
@@ -190,14 +185,12 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             columns=[
                 {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'style': 'width: 10%'},
                 {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'style': 'width: 70%'},
-                # Fréquence est une colonne de type nombre, donc elle s'affichera normalement
-                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'}, 
+                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
             ],
-            rows=[],
+            rows=[], 
             row_key='competence'
         ).props('flat bordered').classes('w-full')
 
-        # La page_info_label est placée ici, au centre des boutons de pagination.
         with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
             btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
             btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
@@ -233,7 +226,6 @@ def main_page(client: Client):
     session_logger.handlers.clear()
     session_logger.setLevel(logging.INFO) # Garder à INFO pour le mode test
 
-    # S'assurer que le logger racine propage les messages aux handlers (y compris session_logger si configuré)
     root_logger = logging.getLogger()
     if not root_logger.handlers:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -284,17 +276,14 @@ def main_page(client: Client):
                 return
 
             try:
-                # Récupérer l'ID du client pour stocker les données d'export globalement par session
                 client_id_for_export = client.id
 
-                # Afficher l'indicateur de chargement
                 results_container.clear()
                 with results_container:
                     with ui.column().classes('w-full p-4 items-center'):
                         ui.spinner(size='lg', color='primary')
                         ui.html(f"Analyse en cours pour <strong>'{current_job_value}'</strong>...").classes('text-gray-600 mt-4 text-lg')
 
-                # Exécuter le pipeline d'analyse
                 results = await _run_analysis_pipeline(current_job_value, session_logger)
                 
                 if results is None:
@@ -304,10 +293,8 @@ def main_page(client: Client):
                         ui.label(f"Aucun résultat trouvé pour '{current_job_value}'.").classes('text-negative')
                     return
 
-                # Stocker les données pour l'export via le stockage temporaire global
                 _store_results_for_client_export(client_id_for_export, results, current_job_value)
 
-                # Afficher les résultats une fois l'analyse terminée
                 display_results(results_container, results, current_job_value)
 
             except Exception as e:
@@ -326,12 +313,11 @@ def main_page(client: Client):
         results_container = ui.column().classes('w-full mt-6')
 
         # --- Pied de page et liens externes ---
-        # Ajout d'une classe 'footer-links' pour cibler le CSS
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
             ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
-            with ui.row().classes('gap-4 mt-2 footer-links'): # <-- Ajout de la classe 'footer-links'
-                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>') # <-- Suppression du style inline
-                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>') # <-- Suppression du style inline
+            with ui.row().classes('gap-4 mt-2 footer-links'): 
+                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>')
+                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>')
 
         # --- Section "Logs" extensible (toujours affichée en mode test) ---
         with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
