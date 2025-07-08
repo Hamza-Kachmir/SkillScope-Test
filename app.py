@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import io
+import asyncio # <-- NOUVEL IMPORT
 from typing import Dict, Any, List, Optional
 from nicegui import ui, app, run, Client
 from starlette.responses import Response
@@ -21,6 +22,11 @@ IS_PRODUCTION_MODE = False # En mode test, nous définissons explicitement IS_PR
 
 # --- Stockage Global pour l'Export (par ID de Client/Session) ---
 _export_data_storage: Dict[str, Dict[str, Any]] = {}
+
+# --- Verrouillage des Recherches Concurrentes ---
+# Ce dictionnaire va stocker les Futures des recherches actives pour un métier donné.
+# Si une recherche est en cours pour un métier, les requêtes suivantes pour ce même métier attendront.
+_active_searches: Dict[str, asyncio.Future] = {}
 
 
 # --- Gestionnaires de logs pour l'UI ---
@@ -268,12 +274,45 @@ def main_page(client: Client):
             job_input = ui.input(placeholder="Chercher un métier").props('outlined dense clearable').classes('w-full text-lg')
         
         async def handle_analysis_click():
-            current_job_value = job_input.value
+            current_job_value = job_input.value.strip().lower() # Normaliser la clé de recherche
             session_logger.info("--- NOUVELLE ANALYSE DÉCLENCHÉE ---")
             
             if not current_job_value:
                 session_logger.warning("Analyse annulée : aucun métier n'a été entré.")
                 return
+
+            # Vérifier si une recherche identique est déjà en cours
+            if current_job_value in _active_searches:
+                session_logger.info(f"Recherche pour '{current_job_value}' déjà en cours. Patientez...")
+                # Afficher un message à l'utilisateur
+                results_container.clear()
+                with results_container:
+                    ui.label(f"Une analyse pour '{job_input.value}' est déjà en cours. Veuillez patienter...").classes('text-gray-600 mt-4 text-lg')
+                
+                # Attendre la fin de la recherche déjà lancée
+                try:
+                    await _active_searches[current_job_value]
+                    session_logger.info(f"Reprise de la session après attente pour '{current_job_value}'. Les résultats seront servis via le cache.")
+                    # Redéclencher la logique d'affichage, qui utilisera le cache maintenant
+                    # ou simplement indiquer que l'utilisateur peut relancer
+                    results_for_display = await _run_analysis_pipeline(current_job_value, session_logger)
+                    if results_for_display:
+                         _store_results_for_client_export(client.id, results_for_display, job_input.value)
+                         display_results(results_container, results_for_display, job_input.value)
+                    else:
+                        raise ValueError("La recherche a été lancée mais n'a pas produit de résultats valides.")
+                    
+                except Exception as e:
+                    session_logger.error(f"Erreur lors de l'attente de la recherche en cours pour '{current_job_value}': {e}", exc_info=True)
+                    results_container.clear()
+                    with results_container:
+                        ui.label(f"Une erreur est survenue lors de l'attente de l'analyse : {e}").classes('text-negative')
+                return
+
+            # Si aucune recherche identique n'est en cours, créer une nouvelle Future et la stocker
+            # Cela permet aux requêtes concurrentes d'attendre cette Future.
+            search_future = asyncio.Future()
+            _active_searches[current_job_value] = search_future
 
             try:
                 client_id_for_export = client.id
@@ -282,27 +321,32 @@ def main_page(client: Client):
                 with results_container:
                     with ui.column().classes('w-full p-4 items-center'):
                         ui.spinner(size='lg', color='primary')
-                        ui.html(f"Analyse en cours pour <strong>'{current_job_value}'</strong>...").classes('text-gray-600 mt-4 text-lg')
+                        ui.html(f"Analyse en cours pour <strong>'{job_input.value}'</strong>...").classes('text-gray-600 mt-4 text-lg') # Utiliser job_input.value pour l'affichage (casse originale)
 
-                results = await _run_analysis_pipeline(current_job_value, session_logger)
+                results = await _run_analysis_pipeline(current_job_value, session_logger) # Passer current_job_value (normalisé) au pipeline
                 
                 if results is None:
                     session_logger.error("Le pipeline n'a retourné aucun résultat exploitable.")
                     results_container.clear()
                     with results_container:
-                        ui.label(f"Aucun résultat trouvé pour '{current_job_value}'.").classes('text-negative')
+                        ui.label(f"Aucun résultat trouvé pour '{job_input.value}'.").classes('text-negative')
                     return
 
-                _store_results_for_client_export(client_id_for_export, results, current_job_value)
+                _store_results_for_client_export(client_id_for_export, results, job_input.value) # Utiliser job_input.value pour l'affichage (casse originale)
 
-                display_results(results_container, results, current_job_value)
+                display_results(results_container, results, job_input.value) # Utiliser job_input.value pour l'affichage (casse originale)
 
             except Exception as e:
                 session_logger.critical(f"ERREUR CRITIQUE PENDANT L'ANALYSE : {e}", exc_info=True)
                 results_container.clear()
                 with results_container:
                     ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
-            
+            finally:
+                # Marquer la Future comme terminée, qu'elle ait réussi ou échoué
+                if not search_future.done():
+                    search_future.set_result(True) # Ou set_exception(e) en cas d'erreur spécifique
+                del _active_searches[current_job_value] # Retirer le verrou
+
             session_logger.info("--- FIN DU PROCESSUS ---")
 
 
