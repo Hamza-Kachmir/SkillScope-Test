@@ -45,7 +45,6 @@ def _get_export_data():
     Récupère les données de la dernière analyse depuis le stockage de session de l'application.
     Utilise l'objet client de la session courante pour récupérer les données.
     """
-    # Correction: ui.context.client.storage est directement le user storage
     current_client_storage = ui.context.client.storage 
     df = current_client_storage.get('latest_df', None)
     job_title = current_client_storage.get('latest_job_title', 'Non spécifié')
@@ -184,6 +183,9 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             row_key='competence'
         ).props('flat bordered').classes('w-full')
 
+        # Déclarer page_info_label ici, dans la même portée que update_table
+        page_info_label = ui.label() # Déclaration déplacée ici
+
         def update_table():
             """Met à jour les lignes du tableau et l'état des boutons de pagination."""
             start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
@@ -194,6 +196,13 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             btn_prev.set_enabled(pagination_state['page'] > 1)
             btn_next.set_enabled(pagination_state['page'] < total_pages)
             btn_last.set_enabled(pagination_state['page'] < total_pages)
+
+        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
+            btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
+            btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
+            # page_info_label est maintenant défini avant
+            btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
+            btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
 
         update_table()
 
