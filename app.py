@@ -103,7 +103,7 @@ def display_results(container: ui.column, results_dict: dict, job_title: str):
 
     with container:
         with ui.row().classes('w-full items-baseline'):
-            ui.label("Synthèse").classes('text-2xl font-bold text-gray-800')
+            ui.label(f"Synthèse pour '{job_title}'").classes('text-2xl font-bold text-gray-800')
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
         with ui.row().classes('w-full mt-4 gap-4 flex flex-wrap'):

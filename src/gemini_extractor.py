@@ -17,11 +17,13 @@ Tu es un système expert en extraction de données pour le marché du travail. T
 2.  **Liste d'Objets** : La valeur de `"extracted_data"` doit être une liste d'objets. Chaque objet représente une des descriptions de poste analysées.
 3.  **Structure de l'Objet** : Chaque objet dans la liste doit impérativement contenir trois clés : `"index"` (l'index de la description originale), `"skills"` (une liste de chaînes de caractères), et `"education_level"` (une unique chaîne de caractères).
 
-## DÉFINITION FONDAMENTALE D'UNE COMPÉTENCE (RÈGLE D'OR)
-1.  **Une compétence implique une action ou une expertise.** Elle doit décrire un savoir-faire. Des noms de concepts ou d'objets seuls ne sont pas des compétences.
-    * **Exemple Clé :** "Construction de mur" est une compétence. "Mur" seul ne l'est pas. De la même manière, "Gestion de la paie" est une compétence, mais "Paie" seul ne l'est pas. Tu ne dois donc extraire que la compétence complète qui inclut l'action.
-2.  **Exception pour les Technologies :** La seule exception concerne les noms propres désignant sans ambiguïté une technologie, un logiciel, un langage de programmation ou une méthodologie reconnue. Ceux-ci sont considérés comme des compétences à part entière.
-    * **Exemples à extraire :** `Python`, `React`, `Docker`, `Microsoft Excel`, `SAP`, `Agile`, `Silae`.
+## RÈGLES D'EXTRACTION DES COMPÉTENCES (RÈGLES D'OR)
+1.  **PRIORITÉ 1 - EXTRACTION DES TECHNOLOGIES** : Ta première priorité est d'identifier et d'extraire les noms propres de technologies, logiciels, langages ou méthodologies. Ceux-ci sont **toujours** considérés comme des compétences valides et doivent être extraits.
+    * **Exemples :** `Python`, `React`, `Docker`, `Microsoft Excel`, `SAP`, `Agile`, `Silae`, `AWS`, `SQL`.
+    * Même si tu vois "expérience en développement Python", tu dois extraire `Python`.
+
+2.  **PRIORITÉ 2 - COMPÉTENCES D'ACTION** : Ensuite, extrais les compétences qui décrivent un savoir-faire ou une action.
+    * **Exemple Clé :** "Construction de mur" est une compétence. "Mur" seul ne l'est pas. "Gestion de la paie" est une compétence, "Paie" seul ne l'est pas.
 
 ## RÈGLES D'EXTRACTION SPÉCIFIQUES
 1.  **Filtre** : Ignore les termes génériques (ex: expérience, maîtrise, connaissance), les titres de postes et les diplômes.
@@ -96,18 +98,12 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) ->
     logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
         response = await model.generate_content_async(prompt)
-        
-        # --- DÉBUT DE LA CORRECTION ---
-        # On corrige l'erreur d'échappement de l'apostrophe avant de parser le JSON
         cleaned_text = response.text.replace(r"\'", "'")
         skills_json = json.loads(cleaned_text)
-        # --- FIN DE LA CORRECTION ---
-
         logging.info("Réponse JSON de Gemini reçue et parsée avec succès pour un lot.")
         return skills_json
         
     except json.JSONDecodeError as e:
-        # On utilise le texte nettoyé dans le message d'erreur pour un meilleur diagnostic
         logging.error(f"Erreur de décodage JSON de la réponse Gemini : {e}. Réponse brute: {cleaned_text}")
         return None
     except Exception as e:
