@@ -4,7 +4,7 @@ import os
 import sys
 import io
 from typing import Dict, Any, List, Optional
-from nicegui import ui, app, run
+from nicegui import ui, app, run, Client # Importer Client explicitement
 from starlette.responses import Response
 
 # Ajoute le répertoire 'src' au chemin pour permettre les imports locaux
@@ -43,10 +43,11 @@ class UiLogHandler(logging.Handler):
 def _get_export_data():
     """
     Récupère les données de la dernière analyse depuis le stockage de session de l'application.
+    Utilise l'objet client de la session courante pour récupérer les données.
     """
-    # Ici, ui.context est généralement fiable car c'est un point d'entrée d'API.
-    # Cependant, pour une robustesse maximale, nous pouvons aussi utiliser get_client()
-    current_client_storage = ui.context.get_client().storage.user
+    # ui.context.client.storage.user est le plus robuste ici
+    # car ces endpoints sont toujours appelés dans un contexte de client actif.
+    current_client_storage = ui.context.client.storage.user 
     df = current_client_storage.get('latest_df', None)
     job_title = current_client_storage.get('latest_job_title', 'Non spécifié')
     actual_offers_count = current_client_storage.get('latest_actual_offers_count', 0)
@@ -199,14 +200,14 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
 
 
 @ui.page('/')
-def main_page():
+def main_page(client: Client): # Recevez le client directement ici
     """Construit et configure la page principale de l'application, spécifique à chaque session."""
     job_input: ui.input = None
     results_container: ui.column = None
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session
 
-    session_logger = logging.getLogger(f"session_logger_{id(ui.context)}")
+    session_logger = logging.getLogger(f"session_logger_{id(client)}") # Utiliser client.id pour le nom du logger
     session_logger.handlers.clear()
     session_logger.setLevel(logging.INFO) # Niveau de log à INFO pour le test
 
@@ -244,9 +245,10 @@ def main_page():
                 return
 
             try:
-                # Récupérer le stockage du client DÈS LE DÉBUT du handler pour s'assurer du contexte
-                current_client_storage = ui.context.get_client().storage.user # Accès le plus sûr ici
-
+                # La meilleure approche: passer l'objet client au lieu de tenter de le récupérer via ui.context
+                # C'est parce que 'client' est passé comme argument à main_page() par NiceGUI
+                # et est donc garanti d'être le client de la session courante.
+                
                 # Afficher l'indicateur de chargement
                 results_container.clear()
                 with results_container:
@@ -260,8 +262,8 @@ def main_page():
                 if results is None:
                     raise ValueError("Le pipeline n'a retourné aucun résultat ou a échoué.")
 
-                # Stocker les données pour l'export en utilisant le client_storage récupéré au début
-                _store_results_for_client(current_client_storage, results, current_job_value)
+                # Stocker les données pour l'export en utilisant l'objet 'client' directement
+                _store_results_for_client(client.storage.user, results, current_job_value)
 
                 # Afficher les résultats une fois l'analyse terminée
                 display_results(results_container, results, current_job_value)
