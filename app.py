@@ -4,7 +4,7 @@ import os
 import sys
 import io
 import asyncio
-import unicodedata
+import unicodedata 
 from typing import Dict, Any, List, Optional
 from nicegui import ui, app, run, Client
 from starlette.responses import Response
@@ -56,23 +56,19 @@ def _normalize_search_term(term: str) -> str:
 class UiLogHandler(logging.Handler):
     """
     Un gestionnaire de logs personnalisé qui pousse les messages vers un élément `ui.log` de NiceGUI
-    (pour le développeur) et met à jour l'UI de progression pour l'utilisateur final.
-    Il est robuste face aux déconnexions de clients.
+    (pour le développeur). En mode production, il peut être désactivé pour l'UI.
     """
-    def __init__(self, log_element: ui.log, log_messages_list: list, progress_label: ui.label, progress_bar: ui.linear_progress):
+    def __init__(self, log_element: ui.log, log_messages_list: list):
         super().__init__()
         self.log_element = log_element
         self.log_messages_list = log_messages_list
-        self.progress_label = progress_label
-        self.progress_bar = progress_bar
         # Définit le format des messages de log affichés dans l'UI développeur.
         self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
 
     def emit(self, record):
         """
-        Formate un enregistrement de log et tente de le pousser vers l'interface utilisateur.
+        Formate un enregistrement de log et tente de le pousser vers l'interface utilisateur (pour le développeur).
         Si le client est déconnecté, le message est imprimé dans la console de secours.
-        Les messages structurés mettent à jour la progression visible par l'utilisateur.
         """
         try:
             msg = self.format(record)
@@ -82,24 +78,13 @@ class UiLogHandler(logging.Handler):
             if not IS_PRODUCTION_MODE and self.log_element and hasattr(self.log_element, 'push') and self.log_element.client.has_socket_connection:
                 self.log_element.push(msg)
             
-            # Gère les messages de progression pour l'utilisateur final
-            if isinstance(record.msg, dict) and 'type' in record.msg:
-                if record.msg['type'] == 'user_progress':
-                    self.progress_label.text = record.msg['message']
-                    if 'value' in record.msg:
-                        self.progress_bar.value = record.msg['value']
-                    ui.run_javascript('setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 50);') # Scroll vers le bas pour voir la progression
-                elif record.msg['type'] == 'user_progress_reset':
-                    self.progress_label.text = ""
-                    self.progress_bar.value = 0
-            
         except Exception as e:
             print(f"Erreur dans UiLogHandler: {e}")
 
 
 # --- Points de terminaison (API Endpoints) pour le téléchargement ---
-@app.get('/download/excel/{client_id}')
-def download_excel_endpoint(client_id: str):
+@app.get('/download/excel/{client_id}') 
+def download_excel_endpoint(client_id: str): 
     """
     Point de terminaison FastAPI pour télécharger les résultats au format Excel.
     L'ID du client est utilisé pour récupérer les données spécifiques à la session.
@@ -133,8 +118,8 @@ def download_excel_endpoint(client_id: str):
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
 
 
-@app.get('/download/csv/{client_id}')
-def download_csv_endpoint(client_id: str):
+@app.get('/download/csv/{client_id}') 
+def download_csv_endpoint(client_id: str): 
     """
     Point de terminaison FastAPI pour télécharger les résultats au format CSV.
     L'ID du client est utilisé pour récupérer les données spécifiques à la session.
@@ -177,33 +162,30 @@ async def _run_analysis_pipeline(job_input_val: str, logger_instance: logging.Lo
     :param logger_instance: L'instance de logger spécifique à la session.
     :return: Le dictionnaire de résultats agrégés, ou None en cas d'échec.
     """
-    logger_instance.info({'type': 'user_progress', 'message': 'Démarrage de l\'analyse...', 'value': 0.05})
-    logger_instance.info(f"Début du pipeline d'analyse.")
+    # Supprimé les messages spécifiques de user_progress ici.
+    # Seuls les logs techniques pour le développeur subsistent.
+    logger_instance.info(f"Début du pipeline d'analyse pour '{job_input_val}'.")
     if not job_input_val:
         logger_instance.warning("Analyse annulée dans le pipeline : aucun métier n'a été entré.")
         return None
 
     try:
-        logger_instance.info({'type': 'user_progress', 'message': f'Recherche des offres d\'emploi pour "{job_input_val}"...', 'value': 0.1})
         logger_instance.info(f"Appel du pipeline pour '{job_input_val}' avec {NB_OFFERS_TO_ANALYZE} offres.")
         results = await get_skills_for_job(job_input_val, NB_OFFERS_TO_ANALYZE, logger_instance)
         
         if results is None:
             logger_instance.warning("Le pipeline n'a retourné aucun résultat pour la recherche.")
-            logger_instance.info({'type': 'user_progress', 'message': 'Aucun résultat trouvé.', 'value': 1.0})
             return None
         
-        logger_instance.info({'type': 'user_progress', 'message': 'Analyse terminée ! Préparation de l\'affichage des résultats...', 'value': 1.0})
         logger_instance.info(f"Fin du pipeline d'analyse pour '{job_input_val}'.")
         return results
 
     except Exception as e:
         logger_instance.critical(f"ERREUR CRITIQUE DANS LE PIPELINE D'ANALYSE : {e}", exc_info=True)
-        logger_instance.info({'type': 'user_progress', 'message': 'Une erreur est survenue pendant l\'analyse.', 'value': 0.0}) # Reset bar on error
         return None
 
 
-def _store_results_for_client_export(client_id: str, results: Dict[str, Any], job_title_original: str):
+def _store_results_for_client_export(client_id: str, results: Dict[str, Any], job_title_original: str): 
     """
     Stocke les résultats de l'analyse dans un dictionnaire global, indexé par l'ID du client.
     Ces données seront utilisées par les endpoints de téléchargement.
@@ -213,18 +195,18 @@ def _store_results_for_client_export(client_id: str, results: Dict[str, Any], jo
     :param job_title_original: Le terme de métier original (non normalisé) pour l'affichage dans l'export.
     """
     df_to_store = pd.DataFrame([
-        {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']}
+        {'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} 
         for i, item in enumerate(results.get('skills', []))
     ])
     
     _export_data_storage[client_id] = {
         'df': df_to_store,
-        'job_title': job_title_original,
+        'job_title': job_title_original, 
         'actual_offers_count': results.get('actual_offers_count', 0)
     }
 
 
-def display_results(container: ui.column, results_dict: Dict[str, Any], job_title_original: str):
+def display_results(container: ui.column, results_dict: Dict[str, Any], job_title_original: str): 
     """
     Construit et met à jour dynamiquement la section des résultats dans l'interface utilisateur.
 
@@ -247,22 +229,22 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
     df = pd.DataFrame(formatted_skills)
 
     with container:
-        # Correction de la syntaxe ici (ajout de 'with' et suppression du ':' après classes)
+        # Correction des SyntaxeError
         with ui.row().classes('w-full items-baseline'):
-            ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800')
+            ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800') 
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
-        with ui.row().classes('w-full mt-4 gap-4 flex-wrap'): # Correction : ajout de 'with'
-            with ui.card().classes('items-center p-4 w-full sm:flex-1'): # Correction : ajout de 'with'
+        with ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
                 ui.label(formatted_skills[0]['competence']).classes('text-2xl font-bold text-center text-blue-600')
-            with ui.card().classes('items-center p-4 w-full sm:flex-1'): # Correction : ajout de 'with'
+            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
         
         ui.label("Classement des compétences").classes('text-xl font-bold mt-8 mb-2')
         with ui.row().classes('w-full justify-center gap-4 mb-2 flex-wrap'):
-            client_id = ui.context.client.id
+            client_id = ui.context.client.id 
             ui.link('Export Excel', f'/download/excel/{client_id}', new_tab=True).classes('no-underline bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700')
             ui.link('Export CSV', f'/download/csv/{client_id}', new_tab=True).classes('no-underline bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700')
 
@@ -275,15 +257,15 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
                 {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'style': 'width: 70%'},
                 {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
             ],
-            rows=[],
+            rows=[], 
             row_key='competence'
         ).props('flat bordered').classes('w-full')
 
-        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'): # Correction : ajout de 'with'
+        with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
             btn_first = ui.button('<<', on_click=lambda: (pagination_state.update(page=1), update_table())).props('flat dense color=black')
             btn_prev = ui.button('<', on_click=lambda: (pagination_state.update(page=max(1, pagination_state['page'] - 1)), update_table())).props('flat dense color=black')
             
-            page_info_label = ui.label()
+            page_info_label = ui.label() 
             
             btn_next = ui.button('>', on_click=lambda: (pagination_state.update(page=min(total_pages, pagination_state['page'] + 1)), update_table())).props('flat dense color=black')
             btn_last = ui.button('>>', on_click=lambda: (pagination_state.update(page=total_pages), update_table())).props('flat dense color=black')
@@ -313,15 +295,16 @@ def main_page(client: Client):
     job_input: ui.input = None
     results_container: ui.column = None
     
-    # NOUVEAUX ÉLÉMENTS UI pour la progression utilisateur
-    progress_label: ui.label = None
-    progress_bar: ui.linear_progress = None
+    # NOUVEAUX ÉLÉMENTS UI pour la progression utilisateur (déclarés ici mais non visibles directement)
+    # Ils seront passés au UiLogHandler pour un affichage dynamique s'il est utilisé.
+    _temp_progress_label = ui.label() # Élément factice qui ne sera pas affiché
+    _temp_progress_bar = ui.linear_progress(value=0) # Élément factice qui ne sera pas affiché
 
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session UI.
 
     # Configure un logger spécifique pour cette session utilisateur, pour isoler les logs.
-    session_logger = logging.getLogger(f"session_logger_{id(client)}")
+    session_logger = logging.getLogger(f"session_logger_{id(client)}") 
     session_logger.handlers.clear() # S'assure qu'aucun ancien handler n'est attaché à ce logger.
     session_logger.setLevel(logging.INFO) # Définit le niveau de log à INFO pour un suivi détaillé en mode développement/test.
 
@@ -340,12 +323,12 @@ def main_page(client: Client):
         <style>
             .no-underline { text-decoration: none !important; }
             /* Règle CSS plus spécifique pour les liens dans le pied de page pour éviter le soulignement. */
-            .footer-links a {
-                text-decoration: none !important;
+            .footer-links a { 
+                text-decoration: none !important; 
                 color: #2474c5; /* Couleur par défaut pour les liens du pied de page */
                 font-weight: bold;
             }
-            .footer-links a:hover {
+            .footer-links a:hover { 
                 text-decoration: none !important; /* Pas de soulignement au survol */
             }
         </style>
@@ -377,7 +360,7 @@ def main_page(client: Client):
             
             session_logger.info(f"Déclenchement d'une nouvelle analyse. Terme original: '{original_job_term}', Terme normalisé: '{normalized_job_term}'.")
             
-            if not original_job_term:
+            if not original_job_term: 
                 session_logger.warning("Analyse annulée : aucun métier n'a été entré.")
                 return
 
@@ -390,15 +373,15 @@ def main_page(client: Client):
                 
                 try:
                     # Attend la fin de la recherche déjà active.
-                    await _active_searches[normalized_job_term]
+                    await _active_searches[normalized_job_term] 
                     session_logger.info(f"Reprise de la session après attente pour '{normalized_job_term}'. Les résultats seront servis via le cache.")
                     
                     # Après l'attente, les résultats devraient être en cache. Relance le pipeline
                     # pour les récupérer du cache et les afficher à l'utilisateur qui attendait.
                     results_for_display = await _run_analysis_pipeline(normalized_job_term, session_logger)
                     if results_for_display:
-                        _store_results_for_client_export(client.id, results_for_display, original_job_term)
-                        display_results(results_container, results_for_display, original_job_term)
+                         _store_results_for_client_export(client.id, results_for_display, original_job_term)
+                         display_results(results_container, results_for_display, original_job_term)
                     else:
                         session_logger.error(f"La recherche pour '{normalized_job_term}' n'a pas produit de résultats valides même après attente du verrou.")
                         results_container.clear()
@@ -413,29 +396,27 @@ def main_page(client: Client):
                 return
 
             search_future = asyncio.Future()
-            _active_searches[normalized_job_term] = search_future
+            _active_searches[normalized_job_term] = search_future 
 
             try:
                 client_id_for_export = client.id
 
-                # Affiche l'UI de progression au lieu du simple spinner
+                # Affiche l'UI de chargement simple (spinner + message)
                 results_container.clear()
                 with results_container:
                     with ui.column().classes('w-full p-4 items-center'):
                         ui.spinner(size='lg', color='primary')
                         ui.html(f"Analyse en cours pour <strong>'{original_job_term}'</strong>...").classes('text-gray-600 mt-4 text-lg')
-                        # Nouveaux éléments pour la progression visible par l'utilisateur
-                        nonlocal progress_label, progress_bar
-                        progress_label = ui.label().classes('text-gray-600 text-base mt-2 text-center')
-                        progress_bar = ui.linear_progress(value=0, color='blue').classes('w-full mt-2')
+                        # Suppression des éléments progress_label et progress_bar pour l'affichage utilisateur.
+                        # Ils ne sont plus créés ici ni passés à l'UiLogHandler.
 
-                # Attache le handler de log de l'UI aux NOUVEAUX éléments de progression
-                # Ce handler est temporaire et sera retiré après l'analyse.
-                ui_progress_handler = UiLogHandler(log_view, all_log_messages, progress_label, progress_bar)
+                # Attache le handler de log de l'UI (qui n'aura plus d'éléments de progression à mettre à jour)
+                # Il ne s'occupera que des logs pour le développeur si IS_PRODUCTION_MODE est False.
+                ui_progress_handler = UiLogHandler(log_view, all_log_messages)
                 session_logger.addHandler(ui_progress_handler)
                 
                 # Exécute le pipeline d'analyse avec le terme normalisé.
-                results = await _run_analysis_pipeline(normalized_job_term, session_logger)
+                results = await _run_analysis_pipeline(normalized_job_term, session_logger) 
                 
                 if results is None:
                     session_logger.error("Le pipeline n'a retourné aucun résultat exploitable.")
@@ -444,9 +425,9 @@ def main_page(client: Client):
                         ui.label(f"Aucun résultat trouvé pour '{original_job_term}'.").classes('text-negative')
                     return
 
-                _store_results_for_client_export(client_id_for_export, results, original_job_term)
+                _store_results_for_client_export(client_id_for_export, results, original_job_term) 
 
-                display_results(results_container, results, original_job_term)
+                display_results(results_container, results, original_job_term) 
 
             except Exception as e:
                 session_logger.critical(f"ERREUR CRITIQUE PENDANT L'ANALYSE : {e}", exc_info=True)
@@ -454,17 +435,15 @@ def main_page(client: Client):
                 with results_container:
                     ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
             finally:
-                # Réinitialiser la barre de progression et le label après la fin de l'analyse (succès ou échec).
-                session_logger.info({'type': 'user_progress_reset'})
                 # Détacher le handler temporaire pour éviter les fuites de mémoire.
                 if ui_progress_handler in session_logger.handlers:
                     session_logger.removeHandler(ui_progress_handler)
 
                 # Marque la Future comme terminée (succès ou échec) et retire le verrou.
                 if not search_future.done():
-                    search_future.set_result(True)
+                    search_future.set_result(True) 
                 if normalized_job_term in _active_searches:
-                    del _active_searches[normalized_job_term]
+                    del _active_searches[normalized_job_term] 
 
             session_logger.info("Fin du processus global de l'analyse.")
 
@@ -478,7 +457,7 @@ def main_page(client: Client):
         # --- Pied de Page et Liens Externes ---
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
             ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
-            with ui.row().classes('gap-4 mt-2 footer-links'):
+            with ui.row().classes('gap-4 mt-2 footer-links'): 
                 ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>')
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>')
 
@@ -492,8 +471,8 @@ def main_page(client: Client):
                         ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
-                # Créer des dummy elements pour éviter des erreurs si non utilisés en mode dev.
-                session_logger.addHandler(UiLogHandler(log_view, all_log_messages, progress_label=ui.label(), progress_bar=ui.linear_progress(value=0)))
+                # Il est configuré pour n'afficher que les logs bruts pour le développeur.
+                session_logger.addHandler(UiLogHandler(log_view, all_log_messages))
         else:
             # En mode production, les logs techniques ne sont pas affichés dans l'UI.
             pass
