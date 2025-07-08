@@ -9,51 +9,56 @@ from typing import Dict, Any, List
 MODEL_NAME = 'gemini-1.5-flash-latest'
 
 PROMPT_COMPETENCES = """
-MISSION : Tu es un système expert en recrutement et en analyse sémantique pour le marché du travail français. Ton rôle est d'analyser méticuleusement des descriptions de postes pour en extraire les compétences techniques et le niveau d'études requis le plus pertinent.
+## MISSION
+Tu es un système expert en extraction de données pour le marché du travail. Ta mission est d'analyser des descriptions de postes avec une précision chirurgicale pour en extraire les compétences techniques (`skills`) et le niveau d'études (`education_level`). Tu dois te comporter comme un analyseur sémantique déterministe qui suit les règles à la lettre.
 
-## RÈGLES D'EXTRACTION (STRICTES ET IMPÉRATIVES)
+## RÈGLES IMPÉRATIVES DE FORMATAGE DE SORTIE
+1.  **Format JSON Unique** : La sortie doit être un unique objet JSON valide contenant une seule clé principale : `"extracted_data"`.
+2.  **Liste d'Objets** : La valeur de `"extracted_data"` doit être une liste d'objets. Chaque objet représente une des descriptions de poste analysées.
+3.  **Structure de l'Objet** : Chaque objet dans la liste doit impérativement contenir trois clés : `"index"` (l'index de la description originale), `"skills"` (une liste de chaînes de caractères), et `"education_level"` (une unique chaîne de caractères).
 
-1.  **FORMAT DE SORTIE** : Tu dois retourner un unique objet JSON avec une seule clé : `"extracted_data"`, qui contient une liste d'objets. Chaque objet représente une description de poste.
+## RÈGLES D'EXTRACTION DES COMPÉTENCES (skills)
+1.  **Filtre Strict** : Ignore et exclus systématiquement les soft skills (ex: rigueur, autonomie, communication), les termes génériques (ex: expérience, maîtrise, connaissance), les titres de postes et les diplômes.
+2.  **Normalisation et Consolidation** :
+    * Regroupe toutes les variations d'une même compétence sous un seul nom standard.
+    * Exemples : ["power bi", "PowerBI", "power-bi"] -> "Power BI"; ["js", "javascript"] -> "JavaScript"; ["a.w.s", "amazon web services"] -> "AWS".
+3.  **Gestion de la Casse (Capitalisation)** :
+    * **Acronymes** : Toujours en majuscules (ex: SQL, AWS, GCP, API, SDK, CRM, ERP).
+    * **Noms Propres de Technologies** : Utilise la casse standard de l'industrie (ex: Python, JavaScript, React, Docker, Power BI, TensorFlow).
+    * **Compétences Générales** : Met une majuscule au premier mot (ex: "Gestion de projet", "Comptabilité analytique", "Pâtisserie fine").
 
-2.  **STRUCTURE PAR DESCRIPTION** : Chaque objet dans la liste `"extracted_data"` doit contenir trois clés : `"index"`, `"skills"`, `"education_level"`.
+## RÈGLES D'EXTRACTION DU NIVEAU D'ÉTUDES (education_level)
+1.  **Priorité Absolue au Texte** : Ton analyse doit se baser **exclusivement et uniquement** sur le texte de la description fournie.
+2.  **Aucune Inférence** : N'infère, ne devine, ou n'utilise JAMAIS tes connaissances externes sur le marché du travail pour déterminer le niveau d'études. Si le texte ne mentionne aucun diplôme ou niveau d'études, tu DOIS retourner la valeur "Non spécifié".
+3.  **Agrégation Logique** : Si plusieurs niveaux sont mentionnés, retourne celui qui semble le plus exigé ou le plus fréquent. En cas d'ambiguïté, une fourchette est acceptable (ex: "Bac+3 à Bac+5").
+4.  **Catégories de Sortie Autorisées** : Tu dois retourner **OBLIGATOIREMENT** l'une des valeurs suivantes, et aucune autre :
+    * "CAP / BEP"
+    * "Bac"
+    * "Bac+2 / BTS"
+    * "Bac+3 / Licence"
+    * "Bac+5 / Master"
+    * "Doctorat"
+    * "Formation spécifique"
+    * "Non spécifié"
 
-3.  **EXTRACTION DES COMPÉTENCES ("skills")** :
-    * **NORMALISATION LOGIQUE** : Chaque compétence doit être retournée sous sa forme canonique et la plus correcte possible. Fais preuve de jugement pour la casse.
-    * **FILTRAGE DU BRUIT** : Ignore les termes génériques ("expérience", "maîtrise", "rigueur"), les soft skills, les diplômes et les titres de postes. Ils ne doivent JAMAIS apparaître dans la liste `skills`.
-
-4.  **EXTRACTION DU NIVEAU D'ÉTUDES ("education_level")** :
-    * **PRIORITÉ AU TEXTE** : Ta réponse DOIT se baser **en priorité absolue** sur les diplômes mentionnés dans les descriptions fournies.
-    * **LOGIQUE D'AGRÉGATION** : S'il y a plusieurs niveaux mentionnés (ex: Bac+2 et Bac+5), retourne le plus fréquent. S'il n'y a pas de majorité claire, retourne une fourchette réaliste (ex: "Bac+2 à Bac+5").
-    * **INFERENCE LIMITÉE** : N'infère un niveau standard du marché que si **AUCUN DIPLÔME** n'est mentionné dans le texte.
-    * **CATÉGORIES DE SORTIE** : Retourne **uniquement** une des valeurs suivantes : "CAP / BEP", "Bac", "Bac+2 / BTS", "Bac+3 / Licence", "Bac+5 / Master", "Doctorat", "Concours / Formation spécifique", "Non spécifié".
-
-## EXEMPLES DE NORMALISATION (À APPLIQUER SYSTÉMATIQUEMENT)
-- "power bi", "powerbi", "PowerBI" -> "Power BI"
-- "piton", "phyton" -> "Python"
-- "js", "javascript" -> "JavaScript"
-- "amazon web services", "a.w.s" -> "AWS"
-- "react js", "react.js" -> "React"
-- "sql server", "ssms" -> "SQL Server"
-- "csharp", "c#" -> "C#"
-
-## EXEMPLE DE SORTIE ATTENDUE
+## EXEMPLE COMPLET DE SORTIE ATTENDUE
 ```json
 {{
   "extracted_data": [
     {{
       "index": 0,
-      "skills": ["pâtisserie fine", "gestion des stocks", "normes haccp"],
-      "education_level": "CAP / BEP"
-    }},
-    {{
-      "index": 1,
       "skills": ["Python", "SQL", "AWS", "ETL", "Spark", "Power BI"],
       "education_level": "Bac+5 / Master"
     }},
     {{
+      "index": 1,
+      "skills": ["Vente B2B", "Négociation commerciale", "CRM"],
+      "education_level": "Bac+2 / BTS"
+    }},
+    {{
       "index": 2,
-      "skills": ["secourisme", "gestion du stress", "permis poids lourd"],
-      "education_level": "Concours / Formation spécifique"
+      "skills": ["Pâtisserie fine", "Gestion des stocks", "Normes HACCP"],
+      "education_level": "Non spécifié"
     }}
   ]
 }}
@@ -75,7 +80,7 @@ def initialize_gemini():
         credentials_info = json.loads(google_creds_json)
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
         genai.configure(credentials=credentials)
-        generation_config = {"temperature": 0.1, "response_mime_type": "application/json"}
+        generation_config = {"temperature": 0.0, "response_mime_type": "application/json"}
         model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config)
         logging.info("Client Gemini initialisé avec succès via les variables d'environnement.")
         return True
@@ -88,7 +93,7 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) ->
             return None
 
     indexed_descriptions = "\\n---\\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
-    prompt = PROMPT_COMPETENCES.format(titre_propre=job_title, indexed_descriptions=indexed_descriptions)
+    prompt = PROMPT_COMPETENCES.format(indexed_descriptions=indexed_descriptions)
 
     logging.info(f"Appel à l'API Gemini pour un lot de {len(descriptions)} descriptions...")
     try:
