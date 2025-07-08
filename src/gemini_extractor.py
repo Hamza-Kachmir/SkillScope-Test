@@ -17,55 +17,34 @@ Tu es un système expert en extraction de données pour le marché du travail. T
 2.  **Liste d'Objets** : La valeur de `"extracted_data"` doit être une liste d'objets. Chaque objet représente une des descriptions de poste analysées.
 3.  **Structure de l'Objet** : Chaque objet dans la liste doit impérativement contenir trois clés : `"index"` (l'index de la description originale), `"skills"` (une liste de chaînes de caractères), et `"education_level"` (une unique chaîne de caractères).
 
-## RÈGLES D'EXTRACTION DES COMPÉTENCES (RÈGLES D'OR)
-1.  **PRIORITÉ 1 - EXTRACTION DES TECHNOLOGIES** : Ta première priorité est d'identifier et d'extraire les noms propres de technologies, logiciels, langages ou méthodologies. Ceux-ci sont **toujours** considérés comme des compétences valides et doivent être extraits.
+## RÈGLE D'OR : DÉFINITION ET FILTRAGE D'UNE COMPÉTENCE
+Pour être extraite, une expression doit correspondre à l'un des deux critères suivants. Tout le reste doit être ignoré.
+
+1.  **CRITÈRE 1 : TECHNOLOGIE OU MÉTHODOLOGIE NOMMÉE**
+    * Tu DOIS extraire les noms propres désignant sans ambiguïté une technologie, un logiciel, un langage ou une méthodologie.
     * **Exemples :** `Python`, `React`, `Docker`, `Microsoft Excel`, `SAP`, `Agile`, `Silae`, `AWS`, `SQL`.
-    * Même si tu vois "expérience en développement Python", tu dois extraire `Python`.
 
-2.  **PRIORITÉ 2 - COMPÉTENCES D'ACTION** : Ensuite, extrais les compétences qui décrivent un savoir-faire ou une action.
-    * **Exemple Clé :** "Construction de mur" est une compétence. "Mur" seul ne l'est pas. "Gestion de la paie" est une compétence, "Paie" seul ne l'est pas.
+2.  **CRITÈRE 2 : COMPÉTENCE D'ACTION**
+    * Si l'expression n'est pas une technologie nommée, elle DOIT décrire un savoir-faire ou une action concrète. Les noms de concepts seuls sont invalides.
+    * **Exemple fondamental :** "Gestion de la paie" est une compétence valide car "Gestion" est une action. "Paie" seul est un concept invalide et ne doit JAMAIS être extrait. "Intégration continue" est valide, "Intégration" seul est invalide.
+    * Si tu trouves à la fois la compétence d'action et le concept (ex: "Gestion de la paie" et "Paie"), tu dois **uniquement** conserver la compétence d'action.
 
-## RÈGLES D'EXTRACTION SPÉCIFIQUES
-1.  **Filtre** : Ignore les termes génériques (ex: expérience, maîtrise, connaissance), les titres de postes et les diplômes.
-2.  **Normalisation** : Regroupe toutes les variations d'une même compétence sous un seul nom standard (ex: ["power bi", "PowerBI"] -> "Power BI").
-3.  **Gestion de la Casse** :
-    * **Acronymes** : Toujours en majuscules (ex: SQL, AWS, API, CRM).
-    * **Noms Propres (Technologies, etc.)** : Casse standard de l'industrie (ex: Python, JavaScript, Power BI).
-    * **Compétences Générales et Soft Skills** : Majuscule au premier mot (ex: "Gestion de projet", "Esprit d'équipe").
+## RÈGLES SECONDAIRES
+1.  **Normalisation** : Regroupe les variations d'une même compétence (ex: ["power bi", "PowerBI"] -> "Power BI").
+2.  **Gestion de la Casse** : Acronymes en majuscules (`SQL`, `AWS`); Noms propres avec la casse standard (`Python`); Compétences générales avec une majuscule au début (`Gestion de projet`).
 
 ## RÈGLES D'EXTRACTION DU NIVEAU D'ÉTUDES
 1.  **Priorité Absolue au Texte** : Ton analyse doit se baser **exclusivement** sur le texte de la description.
 2.  **Aucune Inférence** : Si aucun diplôme n'est mentionné, tu DOIS retourner "Non spécifié".
-3.  **Analyse de la Répartition** :
-    * Si tu observes une **forte dispersion** des niveaux demandés (ex: de nombreuses offres à Bac+2/3 ET de nombreuses offres à Bac+5), tu **dois** retourner une **fourchette réaliste** pour refléter fidèlement le marché (ex: "Bac+2 à Bac+5").
-    * Si une **majorité écrasante** des offres pointe vers un niveau unique, retourne ce niveau.
-4.  **Catégories de Sortie Autorisées** : La valeur doit **obligatoirement** être l'une des suivantes : "CAP / BEP", "Bac", "Bac+2 / BTS", "Bac+3 / Licence", "Bac+5 / Master", "Doctorat", "Formation spécifique", "Non spécifié", ou une fourchette logique comme "Bac+2 à Bac+5".
+3.  **Analyse de la Répartition** : Si tu observes une **forte dispersion** des niveaux demandés (ex: de nombreuses offres à Bac+2/3 ET de nombreuses offres à Bac+5), tu **dois** retourner une **fourchette réaliste** (ex: "Bac+2 à Bac+5"). Si une **majorité écrasante** pointe vers un niveau unique, retourne ce niveau.
+4.  **Catégories Autorisées** : La valeur doit **obligatoirement** être l'une des suivantes : "CAP / BEP", "Bac", "Bac+2 / BTS", "Bac+3 / Licence", "Bac+5 / Master", "Doctorat", "Formation spécifique", "Non spécifié", ou une fourchette logique.
 
-## EXEMPLE COMPLET DE SORTIE ATTENDUE
-```json
-{{
-  "extracted_data": [
-    {{
-      "index": 0,
-      "skills": ["Java", "Spring Boot", "API REST", "SQL", "Travail en équipe"],
-      "education_level": "Bac+5 / Master"
-    }},
-    {{
-      "index": 1,
-      "skills": ["JavaScript", "React", "HTML5", "CSS3"],
-      "education_level": "Bac+2 à Bac+5"
-    }},
-    {{
-      "index": 2,
-      "skills": ["Gestion de la paie", "Droit social", "Silae", "Rigueur"],
-      "education_level": "Bac+3 / Licence"
-    }}
-  ]
-}}
 DESCRIPTIONS À ANALYSER CI-DESSOUS (format "index: description"):
 {indexed_descriptions}
 """
+
 model = None
+
 def initialize_gemini():
     global model
     if model:
@@ -87,6 +66,7 @@ def initialize_gemini():
     except Exception as e:
         logging.critical(f"Échec de l'initialisation de Gemini : {e}")
         return False
+
 async def extract_skills_with_gemini(job_title: str, descriptions: List[str]) -> Dict[str, Any] | None:
     if not model:
         if not initialize_gemini():
