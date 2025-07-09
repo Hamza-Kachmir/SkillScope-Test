@@ -1,20 +1,25 @@
-import google.generativeai as genai
+import google.generativeai as genai 
 from google.oauth2 import service_account
 import logging
 import json
 import os
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncIterable
+import vertexai 
+from vertexai.preview.generative_models import GenerativeModel, Part 
 
-# Constantes de configuration pour l'API Gemini.
+# Constantes de configuration Gemini.
 MODEL_NAME = 'gemini-1.5-flash-latest'
 PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md')
 
 # Variables globales pour stocker le modèle Gemini et le template de prompt.
-model: Optional[genai.GenerativeModel] = None
+model: Optional[GenerativeModel] = None 
 prompt_template: Optional[str] = None
-# Logger interne pour ce module, qui sera configuré par le logger de la session.
 _current_logger: logging.Logger = logging.getLogger(__name__) 
+
+# Constantes de configuration pour Vertex AI.
+PROJECT_ID = os.getenv('GCP_PROJECT_ID') 
+LOCATION = os.getenv('GCP_LOCATION', 'us-central1') 
 
 
 def _load_prompt_from_file() -> Optional[str]:
@@ -32,50 +37,45 @@ def _load_prompt_from_file() -> Optional[str]:
 
 def initialize_gemini(logger: logging.Logger) -> bool: 
     """
-    Initialise le client Gemini et charge le prompt.
+    Initialise le client Gemini via Vertex AI et charge le prompt.
     Cette fonction doit être appelée avant toute tentative d'extraction.
 
     :param logger: L'instance de logger à utiliser pour les messages de ce module.
     :return: True si l'initialisation est réussie, sinon False.
     """
     global model, prompt_template, _current_logger
-    _current_logger = logger # Redirige le logger interne pour utiliser celui de la session.
+    _current_logger = logger 
 
-    # Vérifie si le modèle et le prompt sont déjà chargés pour éviter une réinitialisation inutile.
     if model and prompt_template:
         return True
 
-    # Charge le prompt depuis le fichier si ce n'est pas déjà fait.
     if not prompt_template:
         prompt_template = _load_prompt_from_file()
         if not prompt_template:
             return False
 
-    # Initialise le modèle Gemini si ce n'est pas déjà fait.
     if not model:
-        google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
-        if not google_creds_json:
-            _current_logger.critical("Gemini : La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
+        if not PROJECT_ID:
+            _current_logger.critical("Gemini : La variable d'environnement GCP_PROJECT_ID n'est pas définie !")
             return False
-            
+
         try:
-            credentials_info = json.loads(google_creds_json)
-            credentials = service_account.Credentials.from_service_account_info(credentials_info)
-            genai.configure(credentials=credentials)
+            vertexai.init(project=PROJECT_ID, location=LOCATION)
             
-            # Configure le modèle pour des réponses déterministes et au format JSON.
-            generation_config = {"temperature": 0.0, "response_mime_type": "application/json"}
-            model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config)
-            _current_logger.info(f"Gemini : Client '{MODEL_NAME}' initialisé avec succès.")
+            generation_config = {"temperature": 0.0}
+            
+            model = GenerativeModel(MODEL_NAME, generation_config=generation_config)
+            _current_logger.info(f"Gemini : Client '{MODEL_NAME}' initialisé avec succès via Vertex AI (Projet: {PROJECT_ID}, Région: {LOCATION}).")
+            return True
         except Exception as e:
-            _current_logger.critical(f"Gemini : Échec de l'initialisation : {e}")
+            _current_logger.critical(f"Gemini : Échec de l'initialisation de Gemini via Vertex AI : {e}")
             return False
     
     return True
 
 async def extract_skills_with_gemini(job_title: str, descriptions: List[str], logger: logging.Logger) -> Optional[Dict[str, Any]]:
     """
-    Envoie un lot de descriptions de postes à l'API Gemini pour extraction de compétences et niveau d'études.
+    Envoie un lot de descriptions de postes à l'API Gemini via Vertex AI pour extraction en streaming.
 
     :param job_title: Le titre du métier (utilisé pour le contexte des logs).
     :param descriptions: Une liste de descriptions de postes à analyser.
@@ -83,32 +83,35 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
     :return: Un dictionnaire contenant les données extraites au format JSON, ou None en cas d'erreur.
     """
     global _current_logger
-    _current_logger = logger # S'assure que ce logger est utilisé pour les appels de log suivants dans ce module.
+    _current_logger = logger 
 
-    # Vérifie si le modèle et le prompt sont initialisés avant de procéder.
     if not model or not prompt_template:
         _current_logger.error("Gemini : Tentative d'appel à Gemini sans initialisation préalable.")
         if not initialize_gemini(logger):
             return None
 
-    # Formate les descriptions pour les inclure dans le prompt, en gardant leur index.
     indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
     full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions)
 
-    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}').") 
+    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle via Vertex AI (lot pour '{job_title}') en mode streaming...") 
+    
+    full_response_content = ""
     try:
-        response = await model.generate_content_async(full_prompt)
+        responses = await model.generate_content_async(full_prompt, stream=True) 
+
+        async for chunk in responses:
+            if chunk and chunk.text:
+                full_response_content += chunk.text
         
-        # Nettoie la réponse pour corriger d'éventuels caractères d'échappement qui pourraient invalider le JSON.
-        cleaned_text = response.text.replace(r"\'", "'")
+        cleaned_text = full_response_content.replace(r"\'", "'")
         skills_json = json.loads(cleaned_text)
         
-        _current_logger.info(f"Gemini : Réponse JSON reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
+        _current_logger.info(f"Gemini : Réponse JSON complète reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
         return skills_json
         
     except json.JSONDecodeError as e:
-        _current_logger.error(f"Gemini : Erreur de décodage JSON de la réponse. Erreur: {e}. Réponse brute reçue : {response.text[:500]}...")
+        _current_logger.error(f"Gemini : Erreur de décodage JSON de la réponse en streaming : {e}. Réponse complète reçue : {full_response_content[:1000]}...")
         return None
     except Exception as e:
-        _current_logger.error(f"Gemini : Erreur inattendue lors de l'appel à l'API : {e}")
+        _current_logger.error(f"Gemini : Erreur inattendue lors de l'appel à l'API via Vertex AI : {e}")
         return None
