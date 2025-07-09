@@ -104,7 +104,7 @@ def download_excel_endpoint(client_id: str):
     if df is None or df.empty:
         return Response("Aucune donnée à exporter.", media_type='text/plain', status_code=404)
 
-    output = io.BytesIO()
+    output = io.BytesBytes()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         header_info = pd.DataFrame([
             ['Métier Analysé:', job_title],
