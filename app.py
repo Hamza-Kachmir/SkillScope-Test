@@ -97,7 +97,7 @@ def download_excel_endpoint(client_id: str):
         return Response("Aucune donnée à exporter ou session expirée.", media_type='text/plain', status_code=404)
     
     data = _export_data_storage[client_id]
-    df = data.get('df')
+    df = data.get('df') # Récupère le DataFrame complet, y compris la fréquence
     job_title = data.get('job_title', 'Non précisé')
     offers_count = data.get('actual_offers_count', 0)
 
@@ -112,7 +112,8 @@ def download_excel_endpoint(client_id: str):
             []
         ])
         header_info.to_excel(writer, index=False, header=False, sheet_name='Resultats', startrow=0)
-        df.to_excel(writer, index=False, sheet_name='Resultats', startrow=len(header_info)-1)
+        # Exclure la colonne 'frequence' lors de l'export vers Excel
+        df[['classement', 'competence']].to_excel(writer, index=False, sheet_name='Resultats', startrow=len(header_info)-1) 
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.xlsx"'}
     return Response(content=output.getvalue(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers=headers)
@@ -132,7 +133,7 @@ def download_csv_endpoint(client_id: str):
         return Response("Aucune donnée à exporter ou session expirée.", media_type='text/plain', status_code=404)
 
     data = _export_data_storage[client_id]
-    df = data.get('df')
+    df = data.get('df') # Récupère le DataFrame complet, y compris la fréquence
     job_title = data.get('job_title', 'Non précisé')
     offers_count = data.get('actual_offers_count', 0)
 
@@ -144,7 +145,8 @@ def download_csv_endpoint(client_id: str):
         f"Offres Analysées: {offers_count}",
         ""
     ]
-    csv_data = "\n".join(header_lines) + "\n" + df.to_csv(index=False, encoding='utf-8')
+    # Exclure la colonne 'frequence' lors de l'export vers CSV
+    csv_data = "\n".join(header_lines) + "\n" + df[['classement', 'competence']].to_csv(index=False, encoding='utf-8') 
     
     headers = {'Content-Disposition': 'attachment; filename="skillscope_results.csv"'}
     return Response(content=csv_data.encode('utf-8'), media_type='text/csv', headers=headers)
@@ -233,10 +235,8 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             ui.label(f"Synthèse pour '{job_title_original}'").classes('text-2xl font-bold text-gray-800') 
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
-        with ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
-            # Pour s'assurer que les cartes ont la même hauteur, même si le texte diffère.
-            # flex-grow pour qu'elles prennent l'espace disponible, h-full pour la hauteur complète du parent flex.
-            # min-h-[120px] pour une hauteur minimale, items-stretch pour aligner les contenus si besoin.
+        # Harmonisation de la taille des cartes Top Compétence et Niveau Demandé
+        with ui.row().classes('w-full mt-4 gap-4 flex-wrap items-stretch'): # <-- Ajout items-stretch ici
             with ui.card().classes('items-center p-4 w-full sm:flex-1 flex flex-col justify-center min-h-[120px]'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
                 ui.label(formatted_skills[0]['competence']).classes('text-2xl font-bold text-center text-blue-600')
@@ -343,10 +343,10 @@ def main_page(client: Client):
     # --- Contenu Principal de la Page ---
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
         ui.markdown("### Un outil pour quantifier les compétences les plus demandées sur le marché de l'emploi.").classes('text-center font-light text-gray-800')
-        # Texte d'introduction mis à jour avec la mention de Gemini
+        # Phrase d'introduction
         ui.html("<i>Basé sur les données de <b>France Travail</b> et l'analyse de l'IA <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
         
-        # Nouveau message court de disclaimer, placé APRÈS la phrase d'introduction
+        # Nouveau message court de disclaimer, placé APRÈS la phrase d'introduction, sans astérisque
         ui.html('<p style="font-size: 0.85em; color: #6b7280; text-align: center;">'
                 'Cette analyse est indicative et peut contenir des variations ou incohérences dues à l\'IA. Les résultats sont une représentation du marché.</p>').classes('mt-1 mb-4')
 
@@ -469,13 +469,12 @@ def main_page(client: Client):
 
         # --- Pied de Page et Liens Externes ---
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
-            ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
+            ui.html('<p style="font-size: 0.875em; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
             with ui.row().classes('gap-4 mt-2 footer-links'): 
                 ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>')
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>')
-            # Le message de disclaimer court est maintenant juste ici en bas.
-            ui.html('<p style="font-size: 0.75em; color: #6b7280; text-align: center; max-width: 600px; margin-top: 10px;">'
-                    'Cette analyse est indicative et peut contenir des variations ou incohérences dues à l\'IA. Les résultats sont une représentation du marché.</p>').classes('text-center')
+            # Le disclaimer est maintenant déplacé et simplifié juste au-dessus du footer
+            # Il n'y a plus d'astérisque ni de paragraphe dans le footer même.
 
 
         # --- Section "Logs & Outils" (visible ou masquée selon IS_PRODUCTION_MODE) ---
