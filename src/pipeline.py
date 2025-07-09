@@ -9,7 +9,7 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # Configuration pour l'analyse des offres et les lots Gemini.
-GEMINI_BATCH_SIZE = 10  # Nombre de descriptions par lot pour les appels Gemini (pour 100 offres, cela génère 20 lots).
+GEMINI_BATCH_SIZE = 5  # Nombre de descriptions par lot pour les appels Gemini (pour 100 offres, cela génère 20 lots).
 TOP_SKILLS_LIMIT = 20 # Nombre maximum de compétences à afficher dans le classement final.
 
 def _standardize_skill_python(skill_name: str) -> str:

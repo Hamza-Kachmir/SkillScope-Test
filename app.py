@@ -339,7 +339,8 @@ def main_page(client: Client):
     # --- Contenu Principal de la Page ---
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
         ui.markdown("### Un outil pour quantifier les compétences les plus demandées sur le marché de l'emploi.").classes('text-center font-light text-gray-800')
-        ui.html("<i>Basé sur les données de <b>France Travail</b> et l'analyse de <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
+        # Texte d'introduction mis à jour avec la mention de Gemini
+        ui.html("<i>Basé sur les données de <b>France Travail</b> et l'analyse de l'IA <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
 
         # --- Section de Recherche ---
         with ui.row().classes('w-full max-w-lg items-stretch'):
@@ -413,7 +414,6 @@ def main_page(client: Client):
                         # Les éléments de progression utilisateur détaillés ne sont plus affichés.
 
                 # Attache le handler de log de l'UI (qui ne gérera que les logs techniques pour le développeur).
-                # Il doit être créé ici et passé correctement.
                 if not IS_PRODUCTION_MODE:
                     ui_log_handler_instance = UiLogHandler(log_view, all_log_messages)
                     session_logger.addHandler(ui_log_handler_instance)
@@ -439,7 +439,7 @@ def main_page(client: Client):
                     ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
             finally:
                 # Détacher le handler temporaire si il a été créé et attaché.
-                if ui_log_handler_instance in session_logger.handlers:
+                if ui_log_handler_instance is not None and ui_log_handler_instance in session_logger.handlers:
                     session_logger.removeHandler(ui_log_handler_instance)
 
                 # Marque la Future comme terminée (succès ou échec) et retire le verrou.
@@ -460,10 +460,16 @@ def main_page(client: Client):
 
         # --- Pied de Page et Liens Externes ---
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
-            ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
+            ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span><sup style="font-size: 0.7em; vertical-align: top;">*</sup></p>')
             with ui.row().classes('gap-4 mt-2 footer-links'): 
                 ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>')
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>')
+            # Astérisque de disclaimer
+            ui.html('<p style="font-size: 0.75em; color: #6b7280; text-align: center; max-width: 600px; margin-top: 10px;">'
+                    '<sup>*</sup>L\'analyse est basée sur l\'intelligence artificielle et fournit une représentation des compétences et niveaux d\'études. '
+                    'Des incohérences ou des doublons mineurs peuvent subsister malgré les efforts de normalisation. '
+                    'Les résultats sont indicatifs et ne sauraient se substituer à une analyse humaine approfondie du marché du travail.</p>').classes('text-center')
+
 
         # --- Section "Logs & Outils" (visible ou masquée selon IS_PRODUCTION_MODE) ---
         if not IS_PRODUCTION_MODE: # Cette section n'est affichée qu'en mode non-production.
@@ -475,7 +481,6 @@ def main_page(client: Client):
                         ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
-                # Crée un handler sans les arguments progress_label/bar car ils ne sont pas utilisés.
                 session_logger.addHandler(UiLogHandler(log_view, all_log_messages)) 
         else:
             # En mode production, les logs techniques ne sont pas affichés dans l'UI.
