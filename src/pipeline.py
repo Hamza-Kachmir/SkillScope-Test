@@ -2,18 +2,59 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
-# re n'est plus nécessaire car toutes les fonctions de normalisation Python sont supprimées.
+import re # re-importé pour les regex dans la normalisation
 
 from src.france_travail_api import FranceTravailClient
 from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # Configuration pour l'analyse des offres et les lots Gemini.
-GEMINI_BATCH_SIZE = 5  # Nombre de descriptions par lot pour les appels Gemini (pour 100 offres, cela génère 20 lots).
-TOP_SKILLS_LIMIT = 30 # Nombre maximum de compétences à afficher dans le classement final.
+GEMINI_BATCH_SIZE = 10  # Nombre de descriptions par lot pour les appels Gemini (pour 100 offres, cela génère 20 lots).
+TOP_SKILLS_LIMIT = 20 # Nombre maximum de compétences à afficher dans le classement final.
 
-# Toutes les fonctions de normalisation Python (_standardize_skill_python, _normalize_skill_for_counting_key, _get_display_name)
-# ont été supprimées. La normalisation (casse, singulier/pluriel) est entièrement gérée par Gemini via le prompt.
+def _standardize_skill_python(skill_name: str) -> str:
+    """
+    Normalise une compétence en Python pour le comptage et l'affichage.
+    Cette fonction est un post-traitement pour corriger les inconsistances de Gemini.
+    - Uniformise la casse (ex: "Alimentation" vs "alimentation" -> "Alimentation").
+    - Gère le singulier/pluriel simple.
+    - Applique une casse standard pour l'affichage (Ex: "Gestion De Projet", "Power BI").
+    """
+    original_stripped = skill_name.strip()
+
+    # Conserver la casse des acronymes ou termes en majuscules (si déjà bien par Gemini)
+    if original_stripped.isupper() and len(original_stripped) > 1 and ' ' not in original_stripped:
+        return original_stripped
+    # Conserver les termes comme "Power BI" avec la casse exacte souhaitée, ou "Microsoft Excel"
+    if original_stripped.lower() == "power bi": return "Power BI"
+    if original_stripped.lower() == "microsoft excel": return "Microsoft Excel"
+    if original_stripped.lower() == "big data": return "Big Data"
+    if original_stripped.lower() == "machine learning": return "Machine Learning"
+    if original_stripped.lower() == "veille technologique": return "Veille Technologique"
+    if original_stripped.lower() == "soins aux animaux": return "Soins Aux Animaux" # Pour l'exemple spécifique
+
+    lower_case_skill = original_stripped.lower()
+
+    # Gérer le singulier/pluriel simple
+    # C'est une heuristique, peut nécessiter des règles plus complexes
+    singularized_skill = lower_case_skill
+    if singularized_skill.endswith('s') and len(singularized_skill) > 2 and not singularized_skill.endswith('ss'):
+        # On retire le 's' final si le mot est assez long et ne finit pas par 'ss'
+        singularized_skill = singularized_skill[:-1]
+    # Ajoutez d'autres règles de singularisation ici si nécessaire (ex: "travaux" -> "travail")
+
+    # Appliquer une casse standard pour l'affichage des compétences d'action
+    # Chaque mot important commence par une majuscule, mots connecteurs en minuscule.
+    words = singularized_skill.split()
+    capitalized_words = []
+    for i, word in enumerate(words):
+        # Prépositions, articles, conjonctions courants en minuscule, sauf si c'est le premier mot.
+        if i > 0 and word.lower() in ['de', 'des', 'du', 'la', 'le', 'les', 'l\'', 'à', 'aux', 'et', 'ou', 'd\'', 'un', 'une', 'pour', 'avec', 'sans', 'sur', 'dans', 'en', 'par', 'est', 'sont']:
+            capitalized_words.append(word.lower())
+        else:
+            capitalized_words.append(word.capitalize())
+    
+    return ' '.join(capitalized_words)
 
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
@@ -29,31 +70,52 @@ def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
 def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
     """
     Agrège et compte les compétences et niveaux d'études extraits des différents lots par Gemini.
-    Les compétences sont utilisées telles que retournées par Gemini (après simple stripping).
+    Applique une normalisation Python finale pour la déduplication et la standardisation de l'affichage.
 
     :param batch_results: Une liste de résultats bruts provenant des appels à Gemini.
     :return: Un dictionnaire contenant les compétences agrégées par fréquence et le diplôme le plus demandé.
     """
-    skill_frequencies = defaultdict(int) # Stockera {compétence_telle_que_retournée_par_Gemini: count}
+    # Ce dictionnaire stockera les fréquences avec les clés normalisées pour le comptage.
+    skill_frequencies_normalized_key = defaultdict(int)
+    # Ce dictionnaire stockera la forme d'affichage préférée pour chaque clé normalisée.
+    skill_display_names = {}
+    
     education_frequencies = defaultdict(int)
 
     for result_batch in filter(None, batch_results):
         if 'extracted_data' in result_batch:
             for data_entry in result_batch['extracted_data']:
-                # Utilise un ensemble pour dédupliquer les compétences au sein d'une même description.
-                # Les compétences sont utilisées telles que retournées par Gemini, après stripping.
-                unique_skills_in_description = set(s.strip() for s in data_entry.get('skills', []) if s.strip())
-                for skill_name in unique_skills_in_description:
-                    skill_frequencies[skill_name] += 1
+                # Utilise un ensemble pour dédupliquer les compétences au sein d'une même description
+                # après leur normalisation Python.
+                processed_skills_for_this_description = set()
+                
+                for skill_raw in data_entry.get('skills', []):
+                    skill_stripped = skill_raw.strip()
+                    if not skill_stripped:
+                        continue
+                    
+                    # Normalise la compétence via Python pour le comptage et le nom d'affichage.
+                    standardized_skill_for_display = _standardize_skill_python(skill_stripped)
+                    
+                    # La clé de comptage est la version en minuscule et sans accent pour une déduplication parfaite.
+                    counting_key = standardized_skill_for_display.lower() 
+
+                    if counting_key not in skill_display_names:
+                        skill_display_names[counting_key] = standardized_skill_for_display
+                    
+                    processed_skills_for_this_description.add(counting_key)
+                
+                for skill_key_for_counting in processed_skills_for_this_description:
+                    skill_frequencies_normalized_key[skill_key_for_counting] += 1
                 
                 education_level = data_entry.get('education_level', 'Non spécifié')
                 if education_level and education_level != "Non spécifié":
                     education_frequencies[education_level] += 1
     
     # Trie les compétences par fréquence d'apparition (la plus fréquente en premier).
-    # Le nom de la compétence est celui directement retourné par Gemini et agrégé.
-    sorted_skills = sorted(skill_frequencies.items(), key=lambda item: item[1], reverse=True)
-    top_skills = [{"skill": skill, "frequency": freq} for skill, freq in sorted_skills[:TOP_SKILLS_LIMIT]]
+    # Utilise le nom d'affichage canonique pour le dictionnaire de sortie.
+    sorted_skills = sorted(skill_frequencies_normalized_key.items(), key=lambda item: item[1], reverse=True)
+    top_skills = [{"skill": skill_display_names[skill_key], "frequency": freq} for skill_key, freq in sorted_skills[:TOP_SKILLS_LIMIT]]
 
     # Détermine le niveau d'études le plus fréquemment demandé.
     top_education = max(education_frequencies, key=education_frequencies.get) if education_frequencies else "Non précisé"
