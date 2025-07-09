@@ -58,7 +58,7 @@ class UiLogHandler(logging.Handler):
     Un gestionnaire de logs personnalisé qui pousse les messages vers un élément `ui.log` de NiceGUI
     (pour le développeur). En mode production, il est désactivé pour l'UI.
     """
-    def __init__(self, log_element: ui.log, log_messages_list: list): # progress_label et progress_bar supprimés
+    def __init__(self, log_element: ui.log, log_messages_list: list):
         super().__init__()
         self.log_element = log_element
         self.log_messages_list = log_messages_list
@@ -293,8 +293,7 @@ def main_page(client: Client):
     job_input: ui.input = None
     results_container: ui.column = None
     
-    # Les éléments de progression utilisateur (progress_label, progress_bar) ne sont plus utilisés directement ici.
-    # Ils ne sont plus créés ni affichés dans l'UI.
+    # Les éléments de progression utilisateur ne sont plus créés ni affichés ici.
     
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session UI.
@@ -368,7 +367,7 @@ def main_page(client: Client):
                     ui.label(f"Une analyse pour '{original_job_term}' est déjà en cours. Veuillez patienter...").classes('text-gray-600 mt-4 text-lg')
                 
                 try:
-                    # Attend la fin de la recherche déjà active.
+                    # Attendre la fin de la recherche déjà active et s'assurer que le verrou est retiré.
                     await _active_searches[normalized_job_term] 
                     session_logger.info(f"Reprise de la session après attente pour '{normalized_job_term}'. Les résultats seront servis via le cache.")
                     
@@ -389,10 +388,18 @@ def main_page(client: Client):
                     results_container.clear()
                     with results_container:
                         ui.label(f"Une erreur est survenue lors de l'attente de l'analyse : {e}").classes('text-negative')
+                finally:
+                    # S'assurer que le verrou est retiré même si l'attente échoue ou est annulée
+                    if normalized_job_term in _active_searches and _active_searches[normalized_job_term].done():
+                         del _active_searches[normalized_job_term]
+                    
                 return
 
             search_future = asyncio.Future()
             _active_searches[normalized_job_term] = search_future 
+
+            # Déclaration et initialisation du handler ici pour garantir sa portée
+            ui_log_handler_instance = None 
 
             try:
                 client_id_for_export = client.id
@@ -403,10 +410,13 @@ def main_page(client: Client):
                     with ui.column().classes('w-full p-4 items-center'):
                         ui.spinner(size='lg', color='primary')
                         ui.html(f"Analyse en cours pour <strong>'{original_job_term}'</strong>...").classes('text-gray-600 mt-4 text-lg')
-                        # Les éléments de progression utilisateur ont été supprimés ici.
+                        # Les éléments de progression utilisateur détaillés ne sont plus affichés.
 
                 # Attache le handler de log de l'UI (qui ne gérera que les logs techniques pour le développeur).
-                session_logger.addHandler(UiLogHandler(log_view, all_log_messages))
+                # Il doit être créé ici et passé correctement.
+                if not IS_PRODUCTION_MODE:
+                    ui_log_handler_instance = UiLogHandler(log_view, all_log_messages)
+                    session_logger.addHandler(ui_log_handler_instance)
                 
                 # Exécute le pipeline d'analyse avec le terme normalisé.
                 results = await _run_analysis_pipeline(normalized_job_term, session_logger) 
@@ -428,13 +438,14 @@ def main_page(client: Client):
                 with results_container:
                     ui.label(f"Une erreur est survenue : {e}").classes('text-negative')
             finally:
-                # Détacher le handler temporaire pour éviter les fuites de mémoire.
-                if ui_progress_handler in session_logger.handlers:
-                    session_logger.removeHandler(ui_progress_handler)
+                # Détacher le handler temporaire si il a été créé et attaché.
+                if ui_log_handler_instance in session_logger.handlers:
+                    session_logger.removeHandler(ui_log_handler_instance)
 
                 # Marque la Future comme terminée (succès ou échec) et retire le verrou.
                 if not search_future.done():
                     search_future.set_result(True) 
+                # Le verrou est toujours retiré, même en cas d'erreur ou d'échec
                 if normalized_job_term in _active_searches:
                     del _active_searches[normalized_job_term] 
 
@@ -464,7 +475,7 @@ def main_page(client: Client):
                         ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
-                # Note: Le UiLogHandler ici est pour le développeur. Il ne gère pas la progression visuelle de l'utilisateur.
+                # Crée un handler sans les arguments progress_label/bar car ils ne sont pas utilisés.
                 session_logger.addHandler(UiLogHandler(log_view, all_log_messages)) 
         else:
             # En mode production, les logs techniques ne sont pas affichés dans l'UI.
