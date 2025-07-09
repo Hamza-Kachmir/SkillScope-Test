@@ -407,6 +407,7 @@ def main_page(client: Client):
 
                 # Attache le handler de log de l'UI (qui n'aura plus d'éléments de progression à mettre à jour)
                 # Il ne s'occupera que des logs pour le développeur si IS_PRODUCTION_MODE est False.
+                # Note: On passe des éléments factices pour progress_label et progress_bar car ils ne sont plus utilisés dans UiLogHandler.
                 ui_progress_handler = UiLogHandler(log_view, all_log_messages)
                 session_logger.addHandler(ui_progress_handler)
                 
@@ -466,7 +467,7 @@ def main_page(client: Client):
                         ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
-                # Note: Le UiLogHandler ici est pour le développeur. Il ne gère pas la progression visuelle de l'utilisateur.
+                # Note: On ne passe plus progress_label/progress_bar ici car ils ne sont pas utilisés dans UiLogHandler.
                 session_logger.addHandler(UiLogHandler(log_view, all_log_messages)) 
         else:
             # En mode production, les logs techniques ne sont pas affichés dans l'UI.

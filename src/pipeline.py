@@ -14,34 +14,38 @@ TOP_SKILLS_LIMIT = 30 # Nombre maximum de compétences à afficher dans le class
 
 def _standardize_skill_python(skill_name: str) -> str:
     """
-    Applique une normalisation robuste à une compétence en Python pour la déduplication et l'affichage.
-    - Convertit en minuscules pour la base de la comparaison interne.
+    Applique une normalisation robuste à une compétence pour la déduplication et l'affichage.
     - Gère le singulier/pluriel simple.
-    - Applique une casse standard pour l'affichage (Ex: "Gestion De Projet").
+    - Applique une casse standard pour l'affichage (Ex: "Gestion De Projet", "Power BI").
     """
     original_stripped = skill_name.strip()
-    lower_case_skill = original_stripped.lower()
 
-    # Règle pour les acronymes (plus de 1 caractère, tout en majuscule, sans espace) : les laisser tels quels.
-    # Ceci complète la normalisation de Gemini.
+    # Si c'est un acronyme tout en majuscule ou un chiffre, on le garde tel quel
+    # (Ex: SQL, AWS, 5G, IOT). Ceci évite de les capitaliser incorrectement.
     if original_stripped.isupper() and len(original_stripped) > 1 and ' ' not in original_stripped:
         return original_stripped
+    if re.fullmatch(r'\d+', original_stripped): # Ex: "4G", "5G"
+        return original_stripped
+    if original_stripped in ["Power BI", "Microsoft Excel"]: # Casse spécifique pour ces termes composés connus
+        return original_stripped
+
+
+    lower_case_skill = original_stripped.lower()
 
     # Gérer le singulier/pluriel simple pour les noms communs
-    # Cette règle est très basique et peut être améliorée avec des librairies NLP si nécessaire.
     singularized_skill = lower_case_skill
+    # Règles simples pour les pluriels en 's'
     if singularized_skill.endswith('s') and len(singularized_skill) > 2 and not singularized_skill.endswith('ss'):
-        # On ne supprime le 's' que si ce n'est pas un mot comme 'boss' et qu'il a une longueur raisonnable
+        # On essaie de retirer le 's' seulement si le mot n'est pas trop court et ne finit pas par 'ss'
         singularized_skill = singularized_skill[:-1]
-    # Ajouter d'autres règles de singulier/pluriel si nécessaire (ex: en 'x', 'aux' etc.)
+    # D'autres règles pourraient être ajoutées si des motifs de pluriel plus complexes apparaissent.
 
     # Appliquer une casse standard pour l'affichage (première lettre de chaque mot important en majuscule)
-    # Ceci corrige "alimentation" -> "Alimentation", "gestion de projet" -> "Gestion De Projet"
     words = singularized_skill.split()
     capitalized_words = []
     for i, word in enumerate(words):
-        # Les prépositions et articles courants restent en minuscule, sauf si c'est le premier mot.
-        if i > 0 and word in ['de', 'des', 'du', 'la', 'le', 'les', 'l\'', 'à', 'aux', 'et', 'ou', 'd\'', 'un', 'une', 'pour', 'avec', 'sans', 'sur', 'dans', 'en', 'par']:
+        # Prépositions, articles et conjonctions courants en minuscule, sauf si c'est le premier mot.
+        if i > 0 and word in ['de', 'des', 'du', 'la', 'le', 'les', 'l\'', 'à', 'aux', 'et', 'ou', 'd\'', 'un', 'une', 'pour', 'avec', 'sans', 'sur', 'dans', 'en', 'par', 'est', 'sont', 'faire', 'faire du', 'faire de la']:
             capitalized_words.append(word.lower())
         else:
             capitalized_words.append(word.capitalize())
@@ -89,9 +93,8 @@ def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
                     # Normalise la compétence pour le comptage et le nom d'affichage canonique.
                     standardized_skill = _standardize_skill_python(skill_stripped)
                     
-                    # Utilise la version en minuscules et sans accent comme clé interne pour le comptage
-                    # afin de garantir une déduplication parfaite.
-                    counting_key = standardized_skill.lower() # Assure que "Alimentation" et "alimentation" comptent pareil.
+                    # Utilise la version en minuscules pour la clé interne de comptage.
+                    counting_key = standardized_skill.lower() 
 
                     if counting_key not in skill_display_names:
                         # Conserve la forme standardisée pour l'affichage.
@@ -134,7 +137,6 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     cache_key = f"{job_title}@{num_offers}" 
     cached_results = get_cached_results(cache_key) # Tente de récupérer les résultats du cache.
     if cached_results:
-        # Pas de messages 'user_progress' ici, car l'UI se base sur un simple spinner global
         logger.info(f"Résultats trouvés dans le cache pour '{cache_key}'. Fin du processus.")
         return cached_results
     logger.info(f"Aucun résultat en cache pour '{cache_key}', poursuite de l'analyse.")
