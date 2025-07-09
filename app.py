@@ -58,7 +58,7 @@ class UiLogHandler(logging.Handler):
     Un gestionnaire de logs personnalisé qui pousse les messages vers un élément `ui.log` de NiceGUI
     (pour le développeur). En mode production, il est désactivé pour l'UI.
     """
-    def __init__(self, log_element: ui.log, log_messages_list: list):
+    def __init__(self, log_element: ui.log, log_messages_list: list): # progress_label et progress_bar supprimés
         super().__init__()
         self.log_element = log_element
         self.log_messages_list = log_messages_list
@@ -294,7 +294,7 @@ def main_page(client: Client):
     results_container: ui.column = None
     
     # Les éléments de progression utilisateur (progress_label, progress_bar) ne sont plus utilisés directement ici.
-    # Ils sont passés comme arguments factices au UiLogHandler s'il est initialisé, mais ne sont plus créés ni affichés dans l'UI.
+    # Ils ne sont plus créés ni affichés dans l'UI.
     
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session UI.
@@ -403,13 +403,10 @@ def main_page(client: Client):
                     with ui.column().classes('w-full p-4 items-center'):
                         ui.spinner(size='lg', color='primary')
                         ui.html(f"Analyse en cours pour <strong>'{original_job_term}'</strong>...").classes('text-gray-600 mt-4 text-lg')
-                        # Les éléments progress_label et progress_bar ne sont plus créés ni affichés ici.
+                        # Les éléments de progression utilisateur ont été supprimés ici.
 
-                # Attache le handler de log de l'UI (qui n'aura plus d'éléments de progression à mettre à jour)
-                # Il ne s'occupera que des logs pour le développeur si IS_PRODUCTION_MODE est False.
-                # Note: On passe des éléments factices pour progress_label et progress_bar car ils ne sont plus utilisés dans UiLogHandler.
-                ui_progress_handler = UiLogHandler(log_view, all_log_messages)
-                session_logger.addHandler(ui_progress_handler)
+                # Attache le handler de log de l'UI (qui ne gérera que les logs techniques pour le développeur).
+                session_logger.addHandler(UiLogHandler(log_view, all_log_messages))
                 
                 # Exécute le pipeline d'analyse avec le terme normalisé.
                 results = await _run_analysis_pipeline(normalized_job_term, session_logger) 
@@ -467,7 +464,7 @@ def main_page(client: Client):
                         ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy')
                 
                 # Attache le gestionnaire de log personnalisé à ce logger de session.
-                # Note: On ne passe plus progress_label/progress_bar ici car ils ne sont pas utilisés dans UiLogHandler.
+                # Note: Le UiLogHandler ici est pour le développeur. Il ne gère pas la progression visuelle de l'utilisateur.
                 session_logger.addHandler(UiLogHandler(log_view, all_log_messages)) 
         else:
             # En mode production, les logs techniques ne sont pas affichés dans l'UI.

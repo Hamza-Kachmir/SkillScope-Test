@@ -2,7 +2,7 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
-# import re  # re n'est plus nécessaire si _standardize_skill_python est supprimé
+# re n'est plus nécessaire car toutes les fonctions de normalisation Python sont supprimées.
 
 from src.france_travail_api import FranceTravailClient
 from src.cache_manager import get_cached_results, add_to_cache
@@ -12,8 +12,8 @@ from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 GEMINI_BATCH_SIZE = 5  # Nombre de descriptions par lot pour les appels Gemini (pour 100 offres, cela génère 20 lots).
 TOP_SKILLS_LIMIT = 30 # Nombre maximum de compétences à afficher dans le classement final.
 
-# _standardize_skill_python est supprimé. La normalisation de la casse et du singulier/pluriel
-# est maintenant entièrement gérée par Gemini via le prompt.
+# Toutes les fonctions de normalisation Python (_standardize_skill_python, _normalize_skill_for_counting_key, _get_display_name)
+# ont été supprimées. La normalisation (casse, singulier/pluriel) est entièrement gérée par Gemini via le prompt.
 
 
 def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
@@ -29,7 +29,7 @@ def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
 def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
     """
     Agrège et compte les compétences et niveaux d'études extraits des différents lots par Gemini.
-    Les compétences sont censées être déjà normalisées en casse et singulier/pluriel par le modèle d'IA.
+    Les compétences sont utilisées telles que retournées par Gemini (après simple stripping).
 
     :param batch_results: Une liste de résultats bruts provenant des appels à Gemini.
     :return: Un dictionnaire contenant les compétences agrégées par fréquence et le diplôme le plus demandé.
@@ -41,7 +41,7 @@ def _aggregate_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
         if 'extracted_data' in result_batch:
             for data_entry in result_batch['extracted_data']:
                 # Utilise un ensemble pour dédupliquer les compétences au sein d'une même description.
-                # Les compétences sont utilisées telles que retournées par Gemini après stripping.
+                # Les compétences sont utilisées telles que retournées par Gemini, après stripping.
                 unique_skills_in_description = set(s.strip() for s in data_entry.get('skills', []) if s.strip())
                 for skill_name in unique_skills_in_description:
                     skill_frequencies[skill_name] += 1
