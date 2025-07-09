@@ -2,7 +2,7 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
-import re # re-importé pour les regex dans la normalisation
+import re
 
 from src.france_travail_api import FranceTravailClient
 from src.cache_manager import get_cached_results, add_to_cache
@@ -26,6 +26,8 @@ def _standardize_skill_python(skill_name: str) -> str:
     if original_stripped.isupper() and len(original_stripped) > 1 and ' ' not in original_stripped:
         return original_stripped
     # Conserver les termes comme "Power BI" avec la casse exacte souhaitée, ou "Microsoft Excel"
+    if re.fullmatch(r'\d+', original_stripped): # Ex: "4G", "5G"
+        return original_stripped
     if original_stripped.lower() == "power bi": return "Power BI"
     if original_stripped.lower() == "microsoft excel": return "Microsoft Excel"
     if original_stripped.lower() == "big data": return "Big Data"
@@ -39,20 +41,17 @@ def _standardize_skill_python(skill_name: str) -> str:
     # C'est une heuristique, peut nécessiter des règles plus complexes
     singularized_skill = lower_case_skill
     if singularized_skill.endswith('s') and len(singularized_skill) > 2 and not singularized_skill.endswith('ss'):
-        # On retire le 's' final si le mot est assez long et ne finit pas par 'ss'
+        # On essaie de retirer le 's' seulement si le mot n'est pas trop court et ne finit pas par 'ss'
         singularized_skill = singularized_skill[:-1]
     # Ajoutez d'autres règles de singularisation ici si nécessaire (ex: "travaux" -> "travail")
 
     # Appliquer une casse standard pour l'affichage des compétences d'action
-    # Chaque mot important commence par une majuscule, mots connecteurs en minuscule.
+    # Chaque mot important commence par une majuscule.
     words = singularized_skill.split()
     capitalized_words = []
     for i, word in enumerate(words):
-        # Prépositions, articles, conjonctions courants en minuscule, sauf si c'est le premier mot.
-        if i > 0 and word.lower() in ['de', 'des', 'du', 'la', 'le', 'les', 'l\'', 'à', 'aux', 'et', 'ou', 'd\'', 'un', 'une', 'pour', 'avec', 'sans', 'sur', 'dans', 'en', 'par', 'est', 'sont']:
-            capitalized_words.append(word.lower())
-        else:
-            capitalized_words.append(word.capitalize())
+        # La logique de miniscule pour les prépositions est supprimée, tous les mots sont capitalisés.
+        capitalized_words.append(word.capitalize())
     
     return ' '.join(capitalized_words)
 
