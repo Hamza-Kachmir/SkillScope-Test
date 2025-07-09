@@ -223,7 +223,8 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             ui.label("Aucune offre ou compétence pertinente n'a pu être extraite.").classes('text-yellow-800')
         return
 
-    formatted_skills = [{'classement': i + 1, 'competence': item['skill'], 'frequence': item['frequency']} for i, item in enumerate(skills_data)]
+    # La fréquence est toujours calculée mais pas formatée pour l'affichage ici.
+    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
 
     with container:
@@ -256,7 +257,8 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             columns=[
                 {'name': 'classement', 'label': '#', 'field': 'classement', 'align': 'left', 'style': 'width: 10%'},
                 {'name': 'competence', 'label': 'Compétence', 'field': 'competence', 'align': 'left', 'style': 'width: 70%'},
-                {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
+                # La colonne 'frequence' est supprimée de l'affichage
+                # {'name': 'frequence', 'label': 'Fréquence', 'field': 'frequence', 'align': 'left', 'style': 'width: 20%'},
             ],
             rows=[], 
             row_key='competence'
@@ -275,7 +277,8 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             """Met à jour les lignes du tableau et l'état des boutons de pagination."""
             start = (pagination_state['page'] - 1) * pagination_state['rows_per_page']
             end = start + pagination_state['rows_per_page']
-            table.rows = df.iloc[start:end].to_dict('records')
+            # Sélectionne uniquement les colonnes 'classement' et 'competence'
+            table.rows = df.iloc[start:end][['classement', 'competence']].to_dict('records') 
             page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
             btn_first.set_enabled(pagination_state['page'] > 1)
             btn_prev.set_enabled(pagination_state['page'] > 1)
@@ -295,8 +298,6 @@ def main_page(client: Client):
     """
     job_input: ui.input = None
     results_container: ui.column = None
-    
-    # Les éléments de progression utilisateur ne sont plus créés ni affichés ici.
     
     log_view: ui.log = None
     all_log_messages: List[str] = [] # Liste de messages de log propre à cette session UI.
@@ -344,6 +345,11 @@ def main_page(client: Client):
         ui.markdown("### Un outil pour quantifier les compétences les plus demandées sur le marché de l'emploi.").classes('text-center font-light text-gray-800')
         # Texte d'introduction mis à jour avec la mention de Gemini
         ui.html("<i>Basé sur les données de <b>France Travail</b> et l'analyse de l'IA <b>Google Gemini.</b></i>").classes('text-center text-gray-500 mb-6')
+        
+        # Nouveau message court de disclaimer, placé APRÈS la phrase d'introduction
+        ui.html('<p style="font-size: 0.85em; color: #6b7280; text-align: center;">'
+                'Cette analyse est indicative et peut contenir des variations ou incohérences dues à l\'IA. Les résultats sont une représentation du marché.</p>').classes('mt-1 mb-4')
+
 
         # --- Section de Recherche ---
         with ui.row().classes('w-full max-w-lg items-stretch'):
@@ -467,7 +473,9 @@ def main_page(client: Client):
             with ui.row().classes('gap-4 mt-2 footer-links'): 
                 ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>')
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>')
-            # Astérisque de disclaimer (supprimé)
+            # Le message de disclaimer court est maintenant juste ici en bas.
+            ui.html('<p style="font-size: 0.75em; color: #6b7280; text-align: center; max-width: 600px; margin-top: 10px;">'
+                    'Cette analyse est indicative et peut contenir des variations ou incohérences dues à l\'IA. Les résultats sont une représentation du marché.</p>').classes('text-center')
 
 
         # --- Section "Logs & Outils" (visible ou masquée selon IS_PRODUCTION_MODE) ---
