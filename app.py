@@ -233,10 +233,13 @@ def display_results(container: ui.column, results_dict: Dict[str, Any], job_titl
             ui.label(f"({actual_offers} offres analysées)").classes('text-sm text-gray-500 ml-2')
 
         with ui.row().classes('w-full mt-4 gap-4 flex-wrap'):
-            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
+            # Pour s'assurer que les cartes ont la même hauteur, même si le texte diffère.
+            # flex-grow pour qu'elles prennent l'espace disponible, h-full pour la hauteur complète du parent flex.
+            # min-h-[120px] pour une hauteur minimale, items-stretch pour aligner les contenus si besoin.
+            with ui.card().classes('items-center p-4 w-full sm:flex-1 flex flex-col justify-center min-h-[120px]'):
                 ui.label('Top Compétence').classes('text-sm text-gray-500')
                 ui.label(formatted_skills[0]['competence']).classes('text-2xl font-bold text-center text-blue-600')
-            with ui.card().classes('items-center p-4 w-full sm:flex-1'):
+            with ui.card().classes('items-center p-4 w-full sm:flex-1 flex flex-col justify-center min-h-[120px]'):
                 ui.label('Niveau Demandé').classes('text-sm text-gray-500')
                 ui.label(top_diploma).classes('text-2xl font-bold text-blue-600')
         
@@ -447,7 +450,7 @@ def main_page(client: Client):
                     search_future.set_result(True) 
                 # Le verrou est toujours retiré, même en cas d'erreur ou d'échec
                 if normalized_job_term in _active_searches:
-                    del _active_actives[normalized_job_term] 
+                    del _active_searches[normalized_job_term] 
 
             session_logger.info("Fin du processus global de l'analyse.")
 
@@ -460,15 +463,11 @@ def main_page(client: Client):
 
         # --- Pied de Page et Liens Externes ---
         with ui.column().classes('w-full items-center mt-8 pt-6 border-t'):
-            ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span><sup style="font-size: 0.7em; vertical-align: top;">*</sup></p>')
+            ui.html('<p style="font-size: 0.875rem; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
             with ui.row().classes('gap-4 mt-2 footer-links'): 
                 ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>')
                 ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>')
-            # Astérisque de disclaimer
-            ui.html('<p style="font-size: 0.75em; color: #6b7280; text-align: center; max-width: 600px; margin-top: 10px;">'
-                    '<sup>*</sup>L\'analyse est basée sur l\'intelligence artificielle et fournit une représentation des compétences et niveaux d\'études. '
-                    'Des incohérences ou des doublons mineurs peuvent subsister malgré les efforts de normalisation. '
-                    'Les résultats sont indicatifs et ne sauraient se substituer à une analyse humaine approfondie du marché du travail.</p>').classes('text-center')
+            # Astérisque de disclaimer (supprimé)
 
 
         # --- Section "Logs & Outils" (visible ou masquée selon IS_PRODUCTION_MODE) ---
