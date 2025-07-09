@@ -104,7 +104,7 @@ def download_excel_endpoint(client_id: str):
     if df is None or df.empty:
         return Response("Aucune donnée à exporter.", media_type='text/plain', status_code=404)
 
-    output = io.BytesBytes()
+    output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         header_info = pd.DataFrame([
             ['Métier Analysé:', job_title],
@@ -447,7 +447,7 @@ def main_page(client: Client):
                     search_future.set_result(True) 
                 # Le verrou est toujours retiré, même en cas d'erreur ou d'échec
                 if normalized_job_term in _active_searches:
-                    del _active_searches[normalized_job_term] 
+                    del _active_actives[normalized_job_term] 
 
             session_logger.info("Fin du processus global de l'analyse.")
 
