@@ -73,6 +73,7 @@ class FranceTravailClient:
 
         headers = {'Authorization': f'Bearer {self._access_token}'} # Définit l'en-tête d'autorisation.
         # sort=1 pour trier les résultats par pertinence.
+        # aiohttp gère l'encodage des paramètres du dictionnaire 'params' (y compris les espaces en '+')
         params = {'motsCles': search_term, 'range': f'0-{max_offers - 1}', 'sort': 1}
         url = f"{API_BASE_URL}/v2/offres/search" # Construit l'URL de recherche.
 
