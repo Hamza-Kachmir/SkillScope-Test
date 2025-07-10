@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional
 
 # --- Constantes de configuration Gemini ---
 MODEL_NAME = 'gemini-1.5-flash-latest' # Définit le nom du modèle Gemini à utiliser.
-# MODIFICATION ICI : Remonte d'un niveau pour atteindre la racine (où est prompt.md)
+# MODIFICATION ICI : Le prompt est maintenant à la racine du projet, un seul '..' suffit
 PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md')
 
 # --- État global du module ---
@@ -74,6 +74,7 @@ def initialize_gemini(logger: logging.Logger) -> bool:
 async def extract_skills_with_gemini(job_title: str, descriptions: List[str], logger: logging.Logger) -> Optional[Dict[str, Any]]:
     """
     Envoie un lot de descriptions de postes à l'API Gemini pour extraire les compétences et le niveau d'éducation.
+    Le prompt modifié demandera à Gemini de normaliser les compétences directement.
     """
     global _current_logger
     _current_logger = logger # Met à jour le logger avec l'instance fournie.

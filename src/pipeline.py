@@ -9,7 +9,9 @@ import unicodedata
 from france_travail_api import FranceTravailClient
 from cache_manager import get_cached_results, add_to_cache
 from gemini_extractor import extract_skills_with_gemini, initialize_gemini
-from gemini_normalizer import normalize_and_aggregate_skills, initialize_gemini_normalizer # NOUVEAU : Import du normaliseur Gemini
+
+# --- REMOVED: plus besoin de gemini_normalizer ---
+# from gemini_normalizer import normalize_and_aggregate_skills, initialize_gemini_normalizer
 
 # Configuration pour l'analyse des offres et les lots Gemini.
 GEMINI_BATCH_SIZE = 5  # Définit la taille des lots de descriptions pour Gemini.
@@ -24,41 +26,39 @@ def _chunk_list(data: List[Any], chunk_size: int) -> List[List[Any]]:
     """
     return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
-def _aggregate_raw_results_for_normalization(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
+# MODIFICATION : Cette fonction agrégera directement les compétences PRÉ-NORMALISÉES par Gemini.
+def _aggregate_final_results(batch_results: List[Optional[Dict]]) -> Dict[str, Any]:
     """
-    Agrège les compétences brutes et les niveaux d'études extraits des différents lots Gemini
-    avant de les envoyer au normaliseur Gemini.
+    Agrège et compte les compétences et niveaux d'études extraits des différents lots Gemini.
+    Les compétences sont déjà normalisées et dédupliquées par Gemini pour chaque description.
     """
-    all_raw_skills = defaultdict(int)
+    skill_frequencies = defaultdict(int)
     education_frequencies = defaultdict(int)
 
     for result_batch in filter(None, batch_results):
         if 'extracted_data' in result_batch:
             for data_entry in result_batch['extracted_data']:
-                # Utilise un ensemble pour dédupliquer les compétences au sein d'une même description.
-                processed_skills_for_this_description = set()
-
-                for skill_raw in data_entry.get('skills', []):
-                    skill_stripped = skill_raw.strip()
-                    if skill_stripped:
-                        processed_skills_for_this_description.add(skill_stripped) # Ajoute la compétence brute
-                
-                for skill_key in processed_skills_for_this_description:
-                    all_raw_skills[skill_key] += 1 # Compte les occurrences brutes
+                # Les compétences sont déjà normalisées et dédupliquées par le prompt Gemini.
+                for skill_normalized in data_entry.get('skills', []):
+                    skill_frequencies[skill_normalized] += 1
 
                 education_level = data_entry.get('education_level', 'Non spécifié')
                 if education_level and education_level != "Non spécifié":
                     education_frequencies[education_level] += 1
 
-    return {
-        "raw_skills_with_counts": dict(all_raw_skills),
-        "education_frequencies": dict(education_frequencies)
-    }
+    # Trie les compétences par fréquence d'apparition.
+    sorted_skills = sorted(skill_frequencies.items(), key=lambda item: item[1], reverse=True)
+    top_skills = [{"skill": skill_name, "frequency": freq} for skill_name, freq in sorted_skills[:TOP_SKILLS_LIMIT]]
+
+    # Détermine le niveau d'études le plus fréquemment demandé.
+    top_education = max(education_frequencies, key=education_frequencies.get) if education_frequencies else "Non précisé"
+
+    return {"skills": top_skills, "top_diploma": top_education}
 
 async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Logger) -> Optional[Dict[str, Any]]:
     """
     Orchestre le processus complet d'extraction de compétences : vérification du cache,
-    recherche d'offres d'emploi, extraction via Gemini et agrégation des résultats.
+    recherche d'offres d'emploi, extraction via Gemini (avec normalisation intégrée) et agrégation des résultats.
     """
     logger.info(f"Début du processus pour '{job_title}' ({num_offers} offres).")
 
@@ -69,15 +69,12 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
         return cached_results
     logger.info(f"Aucun résultat en cache pour '{cache_key}', poursuite de l'analyse.")
 
-    # Initialisation du premier modèle Gemini (extraction)
+    # Initialisation de Gemini (maintenant responsable de l'extraction ET de la normalisation)
     if not initialize_gemini(logger):
-        logger.critical("Échec de l'initialisation de Gemini pour l'extraction; abandon du processus.")
+        logger.critical("Échec de l'initialisation de Gemini; abandon du processus.")
         return None
     
-    # Initialisation du second modèle Gemini (normalisation)
-    if not initialize_gemini_normalizer(logger):
-        logger.critical("Échec de l'initialisation de Gemini pour la normalisation; abandon du processus.")
-        return None
+    # REMOVED : plus besoin d'initialiser un second normalisateur Gemini
 
 
     logger.info(f"Appel à l'API France Travail pour '{job_title}'.")
@@ -96,45 +93,28 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
 
     # Division des descriptions en lots pour un traitement parallèle par Gemini.
     description_chunks = _chunk_list(descriptions, GEMINI_BATCH_SIZE)
-    logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle (Extraction).")
+    logger.info(f"Division des descriptions en {len(description_chunks)} lots pour analyse parallèle (Extraction & Normalisation).")
 
-    # Exécute les appels à Gemini pour l'extraction en parallèle.
+    # Exécute les appels à Gemini en parallèle.
+    # Chaque réponse de Gemini contiendra déjà des compétences normalisées et dédupliquées.
     tasks = [extract_skills_with_gemini(job_title, chunk, logger) for chunk in description_chunks]
     extraction_batch_results = await asyncio.gather(*tasks)
 
-    logger.info("Agrégation des résultats bruts pour envoi au normalisateur Gemini...")
-    aggregated_raw_data = _aggregate_raw_results_for_normalization(extraction_batch_results)
+    logger.info("Fusion et comptage des résultats de tous les lots Gemini (compétences déjà normalisées)...")
+    # MODIFICATION : Appel à la nouvelle fonction d'agrégation
+    aggregated_data = _aggregate_final_results(extraction_batch_results)
 
-    raw_skills_with_counts = aggregated_raw_data["raw_skills_with_counts"]
-    education_frequencies = aggregated_raw_data["education_frequencies"]
-
-    if not raw_skills_with_counts:
-        logger.error("L'extraction n'a produit aucune compétence brute; fin du processus.")
+    if not aggregated_data.get("skills"):
+        logger.error("L'analyse n'a produit aucune compétence; fin du processus.")
         return None
-
-    logger.info(f"Envoi des compétences brutes au normalisateur Gemini pour consolidation et nettoyage ({len(raw_skills_with_counts)} compétences uniques brutes).")
-    normalized_skills_data = await normalize_and_aggregate_skills(dict(raw_skills_with_counts), logger)
-
-    if not normalized_skills_data:
-        logger.error("La normalisation Gemini n'a produit aucune compétence; fin du processus.")
-        return None
-    
-    # Trie les compétences normalisées par fréquence d'apparition.
-    # Les données reçues de normalize_and_aggregate_skills sont déjà agrégées.
-    sorted_skills = sorted(normalized_skills_data.items(), key=lambda item: item[1], reverse=True)
-    top_skills = [{"skill": skill_name, "frequency": freq} for skill_name, freq in sorted_skills[:TOP_SKILLS_LIMIT]]
-
-    # Détermine le niveau d'études le plus fréquemment demandé.
-    top_education = max(education_frequencies, key=education_frequencies.get) if education_frequencies else "Non précisé"
-
 
     final_result = {
-        "skills": top_skills,
-        "top_diploma": top_education,
+        "skills": aggregated_data["skills"],
+        "top_diploma": aggregated_data["top_diploma"],
         "actual_offers_count": len(all_offers)
     }
 
-    logger.info(f"Un total de {len(final_result['skills'])} compétences uniques (normalisées) et le diplôme le plus demandé ('{final_result['top_diploma']}') ont été agrégés.")
+    logger.info(f"Un total de {len(final_result['skills'])} compétences uniques et le diplôme le plus demandé ('{final_result['top_diploma']}') ont été agrégés.")
 
     logger.info(f"Mise en cache du résultat final avec la clé '{cache_key}'.")
     add_to_cache(cache_key, final_result)
