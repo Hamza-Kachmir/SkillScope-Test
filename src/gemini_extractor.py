@@ -1,5 +1,5 @@
 import vertexai
-from vertexai.preview.generative_models import GenerativeModel, Part, Content, SystemInstruction, Tool, ToolConfig
+from vertexai.preview.generative_models import GenerativeModel, Part, Content, Tool, ToolConfig
 import logging
 import json
 import os
@@ -93,11 +93,8 @@ async def extract_skills_with_gemini(job_title_normalized: str, descriptions: Li
     # Chaque nouvelle recherche de métier démarre une nouvelle session logique.
     if job_title_normalized not in _active_chat_sessions:
         _current_logger.info(f"Création d'une nouvelle session de chat Gemini pour le métier '{job_title_normalized}'.")
-        # La SystemInstruction est ajoutée au début de la session.
-        system_instruction = SystemInstruction(
-            parts=[Part.from_text(_prompt_template)]
-        )
-        chat = _vertex_model.start_chat(system_instruction=system_instruction)
+        # Passe directement le prompt_template comme system_instruction sous forme de chaîne.
+        chat = _vertex_model.start_chat(system_instruction=_prompt_template)
         _active_chat_sessions[job_title_normalized] = chat
     else:
         chat = _active_chat_sessions[job_title_normalized]
