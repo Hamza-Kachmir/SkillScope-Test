@@ -14,7 +14,7 @@ from starlette.requests import Request
 # Ajoute le répertoire 'src' au chemin pour permettre les imports locaux.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
-from pipeline import get_skills_for_job
+from pipeline import get_skills_for_job_streaming
 from src.cache_manager import flush_all_cache
 
 # --- Constantes de configuration ---
