@@ -148,7 +148,7 @@ async def _update_ui_with_results(results_dict: Dict[str, Any], job_title_origin
         loading_label.content = f"Analyse en cours pour <strong>'{job_title_original}'</strong> ({actual_offers} offres traitées)..."
         return # Attendre plus de données pour afficher le tableau
 
-    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)]
+    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)}
     df = pd.DataFrame(formatted_skills)
 
     # Mise à jour du stockage pour l'exportation
@@ -291,8 +291,8 @@ def main_page(client: Client):
         # Conteneur pour le spinner et le message initial
         initial_feedback_container = ui.column().classes('w-full p-4 items-center')
         with initial_feedback_container:
-            loading_spinner = ui.spinner(size='lg', color='primary').bind_visible_from(initial_feedback_container, 'visible')
-            loading_label = ui.html(f"").classes('text-gray-600 mt-4 text-lg').bind_visible_from(initial_feedback_container, 'visible')
+            loading_spinner = ui.spinner(size='lg', color='primary').bind_visibility_from(initial_feedback_container, 'visible') # <-- CORRIGÉ
+            loading_label = ui.html(f"").classes('text-gray-600 mt-4 text-lg').bind_visibility_from(initial_feedback_container, 'visible') # <-- CORRIGÉ
             initial_feedback_container.visible = False # Masquer initialement
 
 
@@ -300,15 +300,15 @@ def main_page(client: Client):
         results_container = ui.column().classes('w-full mt-6')
         with results_container:
             # Placeholder pour les éléments de synthèse qui seront créés dynamiquement
-            ui.label().classes('text-2xl font-bold text-gray-800').style('display: none;') # Cache initiallement
-            ui.label().classes('text-sm text-gray-500 ml-2').style('display: none;') # Cache initiallement
+            ui.label().classes('text-2xl font-bold text-gray-800').style('display: none;')
+            ui.label().classes('text-sm text-gray-500 ml-2').style('display: none;')
 
             # Placeholders for top skill/diploma cards
             ui.card().classes('items-center p-4 w-full sm:flex-1 flex flex-col justify-center min-h-[120px]').style('display: none;')
             ui.card().classes('items-center p-4 w-full sm:flex-1 flex flex-col justify-center min-h-[120px]').style('display: none;')
 
-            ui.label().classes('text-xl font-bold mt-8 mb-2').style('display: none;') # Cache initiallement
-            ui.row().classes('w-full justify-center gap-4 mb-2 flex-wrap').style('display: none;') # Cache initiallement (export buttons)
+            ui.label().classes('text-xl font-bold mt-8 mb-2').style('display: none;')
+            ui.row().classes('w-full justify-center gap-4 mb-2 flex-wrap').style('display: none;') # (export buttons)
 
             # Table for skills
             main_table = ui.table(
@@ -318,14 +318,14 @@ def main_page(client: Client):
                 ],
                 rows=[],
                 row_key='competence'
-            ).props('flat bordered').classes('w-full').bind_visible_from(results_container, 'visible', backward=lambda x: not x) # Cache initiallement
+            ).props('flat bordered').classes('w-full').bind_visibility_from(results_container, 'visible', backward=lambda x: not x) # <-- CORRIGÉ
 
             with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
-                btn_first = ui.button('<<').props('flat dense color=black').bind_visible_from(main_table, 'visible')
-                btn_prev = ui.button('<').props('flat dense color=black').bind_visible_from(main_table, 'visible')
-                page_info_label = ui.label().bind_visible_from(main_table, 'visible')
-                btn_next = ui.button('>').props('flat dense color=black').bind_visible_from(main_table, 'visible')
-                btn_last = ui.button('>>').props('flat dense color=black').bind_visible_from(main_table, 'visible')
+                btn_first = ui.button('<<').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
+                btn_prev = ui.button('<').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
+                page_info_label = ui.label().bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
+                btn_next = ui.button('>').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
+                btn_last = ui.button('>>').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
                 pagination_buttons = [btn_first, btn_prev, btn_next, btn_last]
                 for comp in pagination_buttons:
                     comp.visible = False # Masquer initiallement
