@@ -18,10 +18,10 @@ from src.pipeline import get_skills_for_job_streaming # Importer la nouvelle fon
 from src.cache_manager import flush_all_cache
 
 # --- Constantes de configuration ---
-[cite_start]NB_OFFERS_TO_ANALYZE = 100 # Définit le nombre d'offres d'emploi à analyser par défaut. [cite: 1]
+NB_OFFERS_TO_ANALYZE = 100 # Définit le nombre d'offres d'emploi à analyser par défaut.
 
 # Détermine si l'application est en mode production pour contrôler l'affichage des logs UI.
-[cite_start]IS_PRODUCTION_MODE = os.getenv('PRODUCTION_MODE', 'false').lower() in ('true', '1') # Changé à 'false' par défaut pour le développement [cite: 1]
+IS_PRODUCTION_MODE = os.getenv('PRODUCTION_MODE', 'false').lower() in ('true', '1') # Changé à 'false' par défaut pour le développement
 
 # --- Stockage Global pour l'Export ---
 # [cite_start]Ce dictionnaire stocke temporairement les données d'export par ID de session client. [cite: 1]
