@@ -1,4 +1,3 @@
-# pipeline.py
 import logging
 import asyncio
 from typing import Dict, Any, List, Optional
@@ -6,9 +5,10 @@ from collections import defaultdict
 import re
 import unicodedata
 
-from france_travail_api import FranceTravailClient # Change here
-from cache_manager import get_cached_results, add_to_cache # Change here
-from gemini_extractor import extract_skills_with_gemini, initialize_gemini # Change here
+# Les imports sont directs car 'src' est dans le sys.path de app.py
+from france_travail_api import FranceTravailClient
+from cache_manager import get_cached_results, add_to_cache
+from gemini_extractor import extract_skills_with_gemini, initialize_gemini
 from gemini_normalizer import normalize_and_aggregate_skills, initialize_gemini_normalizer # NOUVEAU : Import du normaliseur Gemini
 
 # Configuration pour l'analyse des offres et les lots Gemini.
@@ -42,7 +42,7 @@ def _aggregate_raw_results_for_normalization(batch_results: List[Optional[Dict]]
                     skill_stripped = skill_raw.strip()
                     if skill_stripped:
                         processed_skills_for_this_description.add(skill_stripped) # Ajoute la compétence brute
-
+                
                 for skill_key in processed_skills_for_this_description:
                     all_raw_skills[skill_key] += 1 # Compte les occurrences brutes
 
@@ -73,7 +73,7 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     if not initialize_gemini(logger):
         logger.critical("Échec de l'initialisation de Gemini pour l'extraction; abandon du processus.")
         return None
-
+    
     # Initialisation du second modèle Gemini (normalisation)
     if not initialize_gemini_normalizer(logger):
         logger.critical("Échec de l'initialisation de Gemini pour la normalisation; abandon du processus.")
@@ -118,7 +118,7 @@ async def get_skills_for_job(job_title: str, num_offers: int, logger: logging.Lo
     if not normalized_skills_data:
         logger.error("La normalisation Gemini n'a produit aucune compétence; fin du processus.")
         return None
-
+    
     # Trie les compétences normalisées par fréquence d'apparition.
     # Les données reçues de normalize_and_aggregate_skills sont déjà agrégées.
     sorted_skills = sorted(normalized_skills_data.items(), key=lambda item: item[1], reverse=True)

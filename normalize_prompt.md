@@ -1,4 +1,3 @@
-# normalize_prompt.md (NOUVEAU FICHIER)
 ## MISSION
 Tu es un système expert en normalisation et agrégation de compétences. Ta mission est de prendre une liste de compétences brutes, potentiellement mal orthographiées, avec des variations de casse, de singulier/pluriel, ou des synonymes, et de les fusionner en un ensemble de compétences standardisées et uniques. Pour chaque compétence standardisée, tu DOIS sommer la fréquence totale de toutes ses variantes brutes.
 

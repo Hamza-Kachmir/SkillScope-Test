@@ -1,4 +1,3 @@
-# src/gemini_normalizer.py (NOUVEAU FICHIER)
 import google.generativeai as genai
 from google.oauth2 import service_account
 import logging
@@ -9,7 +8,8 @@ from typing import Dict, Any, List, Optional
 
 # --- Constantes de configuration Gemini pour la normalisation ---
 MODEL_NAME_NORMALIZER = 'gemini-1.5-flash-latest' # Peut être le même modèle ou un autre si nécessaire.
-PROMPT_NORMALIZER_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'normalize_prompt.md') # Chemin vers le nouveau fichier de prompt.
+# MODIFICATION ICI : Remonte d'un niveau pour atteindre la racine (où est normalize_prompt.md)
+PROMPT_NORMALIZER_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'normalize_prompt.md')
 
 # --- État global du module de normalisation ---
 normalizer_model: Optional[genai.GenerativeModel] = None

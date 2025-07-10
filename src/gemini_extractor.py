@@ -1,4 +1,3 @@
-# src/gemini_extractor.py
 import google.generativeai as genai
 from google.oauth2 import service_account
 import logging
@@ -9,7 +8,8 @@ from typing import Dict, Any, List, Optional
 
 # --- Constantes de configuration Gemini ---
 MODEL_NAME = 'gemini-1.5-flash-latest' # Définit le nom du modèle Gemini à utiliser.
-PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md') # Chemin vers le fichier du prompt.
+# MODIFICATION ICI : Remonte d'un niveau pour atteindre la racine (où est prompt.md)
+PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md')
 
 # --- État global du module ---
 model: Optional[genai.GenerativeModel] = None # Variable globale pour stocker l'instance du modèle Gemini.
