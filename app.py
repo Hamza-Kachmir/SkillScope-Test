@@ -5,7 +5,7 @@ import sys
 import io
 import asyncio
 import unicodedata
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from nicegui import ui, app, run, Client
 from starlette.responses import Response
 from starlette.requests import Request
@@ -14,7 +14,7 @@ from starlette.requests import Request
 # Ajoute le répertoire 'src' au chemin pour permettre les imports locaux.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
-from src.pipeline import get_skills_for_job_streaming # Importer la nouvelle fonction streaming
+from src.pipeline import get_skills_for_job_streaming
 from src.cache_manager import flush_all_cache
 
 # --- Constantes de configuration ---
@@ -132,10 +132,24 @@ def download_csv_endpoint(client_id: str):
     return Response(content=csv_data.encode('utf-8'), media_type='text/csv', headers=headers)
 
 
+def _store_results_for_client_export(client_id: str, results_dict: Dict[str, Any], job_title_original: str):
+    """
+    Stocke les résultats finaux d'une analyse pour permettre leur téléchargement ultérieur.
+    """
+    skills_data = results_dict.get('skills', [])
+    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)]
+    df = pd.DataFrame(formatted_skills)
+
+    _export_data_storage[client_id] = {
+        'df': df,
+        'job_title': job_title_original,
+        'actual_offers_count': results_dict.get('actual_offers_count', 0)
+    }
+
 # --- Logique d'Affichage et d'Analyse des Compétences ---
 # Cette fonction sera appelée par le pipeline pour les mises à jour intermédiaires
 # et le résultat final.
-async def _update_ui_with_results(results_dict: Dict[str, Any], job_title_original: str, container: ui.column, loading_label: ui.html, table: ui.table, page_info_label: ui.label, pagination_buttons, is_final: bool):
+async def _update_ui_with_results(results_dict: Dict[str, Any], job_title_original: str, container: ui.column, loading_label: ui.html, table: ui.table, page_info_label: ui.label, pagination_buttons: List[ui.button], is_final: bool):
     """
     Met à jour l'interface utilisateur avec les résultats de l'analyse,
     soit de manière progressive, soit avec le résultat final.
@@ -148,11 +162,12 @@ async def _update_ui_with_results(results_dict: Dict[str, Any], job_title_origin
         loading_label.content = f"Analyse en cours pour <strong>'{job_title_original}'</strong> ({actual_offers} offres traitées)..."
         return # Attendre plus de données pour afficher le tableau
 
-    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)]
+    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)}
     df = pd.DataFrame(formatted_skills)
 
-    # Mise à jour du stockage pour l'exportation
-    _store_results_for_client_export(ui.context.client.id, results_dict, job_title_original)
+    # Mise à jour du stockage pour l'exportation SI C'EST LE RÉSULTAT FINAL
+    if is_final:
+        _store_results_for_client_export(ui.context.client.id, results_dict, job_title_original)
 
 
     # Gestion de l'affichage initial et des mises à jour
@@ -231,7 +246,7 @@ def main_page(client: Client):
     loading_label: ui.html = None # Pour le label "Analyse en cours..."
     main_table: ui.table = None # Pour le tableau principal
     page_info_label: ui.label = None # Pour l'information de pagination
-    pagination_buttons = [] # Pour stocker les boutons de pagination
+    pagination_buttons: List[ui.button] = [] # Pour stocker les boutons de pagination
 
     log_view: ui.log = None
     all_log_messages: List[str] = []
@@ -291,8 +306,8 @@ def main_page(client: Client):
         # Conteneur pour le spinner et le message initial
         initial_feedback_container = ui.column().classes('w-full p-4 items-center')
         with initial_feedback_container:
-            loading_spinner = ui.spinner(size='lg', color='primary').bind_visibility_from(initial_feedback_container, 'visible') # <-- CORRIGÉ
-            loading_label = ui.html(f"").classes('text-gray-600 mt-4 text-lg').bind_visibility_from(initial_feedback_container, 'visible') # <-- CORRIGÉ
+            loading_spinner = ui.spinner(size='lg', color='primary').bind_visibility_from(initial_feedback_container, 'visible')
+            loading_label = ui.html(f"").classes('text-gray-600 mt-4 text-lg').bind_visibility_from(initial_feedback_container, 'visible')
             initial_feedback_container.visible = False # Masquer initialement
 
 
@@ -318,28 +333,31 @@ def main_page(client: Client):
                 ],
                 rows=[],
                 row_key='competence'
-            ).props('flat bordered').classes('w-full').bind_visibility_from(results_container, 'visible', backward=lambda x: not x) # <-- CORRIGÉ
+            ).props('flat bordered').classes('w-full') # Removed bind_visibility_from results_container here
 
             with ui.row().classes('w-full justify-center items-center gap-2 mt-4'):
-                btn_first = ui.button('<<').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
-                btn_prev = ui.button('<').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
-                page_info_label = ui.label().bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
-                btn_next = ui.button('>').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
-                btn_last = ui.button('>>').props('flat dense color=black').bind_visibility_from(main_table, 'visible') # <-- CORRIGÉ
+                btn_first = ui.button('<<').props('flat dense color=black')
+                btn_prev = ui.button('<').props('flat dense color=black')
+                page_info_label = ui.label()
+                btn_next = ui.button('>').props('flat dense color=black')
+                btn_last = ui.button('>>').props('flat dense color=black')
                 pagination_buttons = [btn_first, btn_prev, btn_next, btn_last]
                 for comp in pagination_buttons:
                     comp.visible = False # Masquer initiallement
+            main_table.visible = False # Masquer le tableau au début
 
             def update_table_pagination():
                 """Met à jour les lignes du tableau et l'état des boutons de pagination."""
-                df_current = pd.DataFrame(main_table.rows) # Obtenir les données actuelles
+                # Note: main_table.rows contient déjà les données paginées après la mise à jour via _update_ui_with_results
+                # Cette fonction est appelée par les boutons de pagination.
+                df_full_data = pd.DataFrame(main_table.qtable.rows) # Accéder aux données non paginées via qtable
                 pagination_state = main_table.pagination._page_state
-                total_pages = max(1, (len(df_current) - 1) // pagination_state['rowsPerPage'] + 1)
+                total_pages = max(1, (len(df_full_data) - 1) // pagination_state['rowsPerPage'] + 1)
                 start = (pagination_state['page'] - 1) * pagination_state['rowsPerPage']
                 end = start + pagination_state['rowsPerPage']
 
                 # Update table rows based on current pagination
-                main_table.rows = df_current.iloc[start:end][['classement', 'competence']].to_dict('records')
+                main_table.rows = df_full_data.iloc[start:end][['classement', 'competence']].to_dict('records')
                 page_info_label.text = f"{pagination_state['page']} sur {total_pages}"
                 btn_first.set_enabled(pagination_state['page'] > 1)
                 btn_prev.set_enabled(pagination_state['page'] > 1)
@@ -381,25 +399,27 @@ def main_page(client: Client):
 
             try:
                 # Réinitialiser l'affichage
-                results_container.clear()
+                results_container.clear() # Clear existing content in results container
                 initial_feedback_container.visible = True
                 loading_spinner.visible = True
                 loading_label.visible = True
                 loading_label.content = f"Analyse en cours pour <strong>'{original_job_term}'</strong>..."
                 main_table.visible = False # Masquer le tableau au début
+                for comp in pagination_buttons: # Masquer les boutons de pagination
+                    comp.visible = False
 
                 # Attache le handler de log de l'UI (pour les logs techniques du développeur) si en mode non-production.
                 if not IS_PRODUCTION_MODE:
                     ui_log_handler_instance = UiLogHandler(log_view, all_log_messages)
                     session_logger.addHandler(ui_log_handler_instance)
 
-                # Callback pour les mises à jour progressives de l'UI
-                async def progress_update_callback(current_results: Dict[str, Any], final: bool):
-                    await _update_ui_with_results(current_results, original_job_term, results_container, loading_label, main_table, page_info_label, pagination_buttons, final)
-
                 # Exécute le pipeline d'analyse avec le terme normalisé.
-                # Utilisez la nouvelle fonction get_skills_for_job_streaming
-                results = await get_skills_for_job_streaming(normalized_job_term, NB_OFFERS_TO_ANALYZE, session_logger, progress_update_callback)
+                results = await get_skills_for_job_streaming(
+                    normalized_job_term,
+                    NB_OFFERS_TO_ANALYZE,
+                    session_logger,
+                    lambda current_results, final: _update_ui_with_results(current_results, original_job_term, results_container, loading_label, main_table, page_info_label, pagination_buttons, final)
+                )
 
                 if results is None or not results.get("skills"):
                     session_logger.error("Le pipeline n'a retourné aucun résultat exploitable ou aucune compétence.")
@@ -410,7 +430,13 @@ def main_page(client: Client):
                     return
 
                 # Si l'analyse est complète et réussie, la dernière mise à jour via le callback aura affiché les résultats
-                # et masqué le spinner. On n'a plus besoin d'appeler display_results ici.
+                # et masqué le spinner.
+                # Assurez-vous que le tableau est visible si des résultats sont là et c'est la fin
+                if results.get("skills"):
+                    main_table.visible = True
+                    for comp in pagination_buttons:
+                        comp.visible = True
+
 
             except Exception as e:
                 session_logger.critical(f"ERREUR CRITIQUE PENDANT L'ANALYSE : {e}", exc_info=True)
@@ -443,8 +469,8 @@ def main_page(client: Client):
         with ui.column().classes('w-full items-center mt-8 pt-2 border-t'):
             ui.html('<p style="font-size: 0.875em; color: #6b7280;"><b style="color: black;">Développé par</b> <span style="color: #f9b15c; font-weight: bold;">Hamza Kachmir</span></p>')
             with ui.row().classes('gap-4 mt-2 footer-links'):
-                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>') # Lien vers le portfolio.
-                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>') # Lien vers le profil LinkedIn.
+                ui.html('<a href="https://portfolio-hamza-kachmir.vercel.app/" target="_blank">Portfolio</a>')
+                ui.html('<a href="https://www.linkedin.com/in/hamza-kachmir/" target="_blank">LinkedIn</a>')
 
 
         # --- Section "Logs & Outils" (visible ou masquée selon IS_PRODUCTION_MODE) ---

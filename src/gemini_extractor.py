@@ -1,20 +1,23 @@
-import google.generativeai as genai
-from google.oauth2 import service_account
+import vertexai
+from vertexai.preview.generative_models import GenerativeModel, Part, Content, SystemInstruction, Tool, ToolConfig
 import logging
 import json
 import os
 import asyncio
 from typing import Dict, Any, List, Optional
 
-# --- Constantes de configuration Gemini ---
+# --- Constantes de configuration Gemini via Vertex AI ---
 MODEL_NAME = 'gemini-1.5-flash-latest' # Définit le nom du modèle Gemini à utiliser.
 PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'prompt.md') # Chemin vers le fichier du prompt.
 
 # --- État global du module ---
-model: Optional[genai.GenerativeModel] = None # Variable globale pour stocker l'instance du modèle Gemini.
-prompt_template: Optional[str] = None # Variable globale pour stocker le contenu du prompt.
+_vertex_model: Optional[GenerativeModel] = None # Variable globale pour stocker l'instance du modèle Vertex AI.
+_prompt_template: Optional[str] = None # Variable globale pour stocker le contenu du prompt.
 _current_logger: logging.Logger = logging.getLogger(__name__) # Logger spécifique pour ce module.
 
+# Dictionnaire pour stocker les sessions de chat actives par terme de recherche.
+# Cela permet de maintenir le contexte pour les lots d'un même métier.
+_active_chat_sessions: Dict[str, Any] = {} # Key: job_title_normalized, Value: ChatSession object
 
 def _load_prompt_from_file() -> Optional[str]:
     """Charge le template du prompt depuis le fichier prompt.md."""
@@ -31,76 +34,111 @@ def _load_prompt_from_file() -> Optional[str]:
 
 def initialize_gemini(logger: logging.Logger) -> bool:
     """
-    Initialise le client Gemini et charge le prompt pour l'extraction de données.
+    Initialise le client Gemini via Vertex AI et charge le prompt pour l'extraction de données.
     Cette fonction doit être appelée avant toute utilisation du modèle Gemini.
     """
-    global model, prompt_template, _current_logger
+    global _vertex_model, _prompt_template, _current_logger
     _current_logger = logger # Met à jour le logger avec l'instance fournie.
 
     # Vérifie si le modèle et le prompt sont déjà initialisés pour éviter de les recharger.
-    if model and prompt_template:
+    if _vertex_model and _prompt_template:
         return True
 
     # Charge le prompt si ce n'est pas déjà fait.
-    if not prompt_template:
-        prompt_template = _load_prompt_from_file()
-        if not prompt_template:
+    if not _prompt_template:
+        _prompt_template = _load_prompt_from_file()
+        if not _prompt_template:
             return False # Échec si le prompt ne peut pas être chargé.
 
-    # Initialise le modèle Gemini si ce n'est pas déjà fait.
-    if not model:
-        google_creds_json = os.getenv('GOOGLE_CREDENTIALS') # Récupère les identifiants Google Cloud.
-        if not google_creds_json:
-            _current_logger.critical("Gemini : La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
-            return False # Échec si les identifiants sont manquants.
+    # Initialise Vertex AI et le modèle Gemini si ce n'est pas déjà fait.
+    if not _vertex_model:
+        google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
+        google_project_id = os.getenv('GOOGLE_CLOUD_PROJECT_ID')
+        google_location = os.getenv('GOOGLE_CLOUD_LOCATION', 'us-central1') # Default location for Vertex AI
+
+        if not google_creds_json or not google_project_id:
+            _current_logger.critical("Gemini : Les variables d'environnement GOOGLE_CREDENTIALS ou GOOGLE_CLOUD_PROJECT_ID ne sont pas définies !")
+            return False
 
         try:
-            credentials_info = json.loads(google_creds_json) # Parse les identifiants JSON.
-            credentials = service_account.Credentials.from_service_account_info(credentials_info) # Crée les identifiants de service.
-            genai.configure(credentials=credentials) # Configure l'API Gemini avec les identifiants.
+            # Vertex AI initialization
+            vertexai.init(project=google_project_id, location=google_location)
+            _current_logger.info(f"Vertex AI initialisé pour le projet '{google_project_id}' à '{google_location}'.")
 
-            generation_config = {"temperature": 0.0, "response_mime_type": "application/json"} # Configure la génération pour un JSON déterministe.
+            generation_config = {"temperature": 0.0, "response_mime_type": "application/json"}
 
-            model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config) # Crée l'instance du modèle Gemini.
-            _current_logger.info(f"Gemini : Client '{MODEL_NAME}' initialisé avec succès.")
-            return True # Succès de l'initialisation.
+            _vertex_model = GenerativeModel(MODEL_NAME, generation_config=generation_config)
+            _current_logger.info(f"Gemini : Modèle '{MODEL_NAME}' initialisé avec succès via Vertex AI.")
+            return True
         except Exception as e:
-            _current_logger.critical(f"Gemini : Échec de l'initialisation de Gemini : {e}")
-            return False # Gère les erreurs d'initialisation du modèle.
+            _current_logger.critical(f"Gemini : Échec de l'initialisation de Vertex AI ou du modèle Gemini : {e}")
+            return False
 
     return True
 
-async def extract_skills_with_gemini(job_title: str, descriptions: List[str], logger: logging.Logger) -> Optional[Dict[str, Any]]:
+async def extract_skills_with_gemini(job_title_normalized: str, descriptions: List[str], logger: logging.Logger) -> Optional[Dict[str, Any]]:
     """
-    Envoie un lot de descriptions de postes à l'API Gemini pour extraire les compétences et le niveau d'éducation.
+    Envoie un lot de descriptions de postes à l'API Gemini (via Vertex AI) pour extraire les compétences
+    et le niveau d'éducation, en utilisant une session de chat persistante pour un même job_title.
     """
-    global _current_logger
-    _current_logger = logger # Met à jour le logger avec l'instance fournie.
+    global _current_logger, _active_chat_sessions
+    _current_logger = logger
 
-    # Vérifie si le modèle et le prompt sont initialisés avant de procéder.
-    if not model or not prompt_template:
+    if not _vertex_model or not _prompt_template:
         _current_logger.error("Gemini : Tentative d'appel à Gemini sans initialisation préalable.")
         if not initialize_gemini(logger):
-            return None # Retourne None si l'initialisation échoue.
+            return None
+
+    # Récupère ou crée une session de chat pour ce job_title normalisé.
+    # Chaque nouvelle recherche de métier démarre une nouvelle session logique.
+    if job_title_normalized not in _active_chat_sessions:
+        _current_logger.info(f"Création d'une nouvelle session de chat Gemini pour le métier '{job_title_normalized}'.")
+        # La SystemInstruction est ajoutée au début de la session.
+        system_instruction = SystemInstruction(
+            parts=[Part.from_text(_prompt_template)]
+        )
+        chat = _vertex_model.start_chat(system_instruction=system_instruction)
+        _active_chat_sessions[job_title_normalized] = chat
+    else:
+        chat = _active_chat_sessions[job_title_normalized]
+        _current_logger.info(f"Réutilisation de la session de chat existante pour le métier '{job_title_normalized}'.")
+
 
     # Formate les descriptions pour les inclure dans le prompt.
+    # Dans une session de chat, le "prompt" devient le message utilisateur envoyé après l'instruction système.
     indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
-    full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions) # Construit le prompt complet.
+    user_message_content = f"DESCRIPTIONS À ANALYSER CI-DESSOUS (format \"index: description\"):\n{indexed_descriptions}"
 
-    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}').")
+    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title_normalized}').")
 
     try:
-        response = await model.generate_content_async(full_prompt) # Appelle l'API Gemini de manière asynchrone.
+        response = await chat.send_message_async(user_message_content)
 
-        cleaned_text = response.text.replace(r"\'", "'") # Nettoie la réponse pour corriger les échappements.
+        # Accès au texte de la réponse (peut varier légèrement avec le SDK Vertex AI)
+        response_text = response.text
+        cleaned_text = response_text.replace(r"\'", "'") # Nettoie la réponse pour corriger les échappements.
         skills_json = json.loads(cleaned_text) # Parse la réponse JSON.
 
         _current_logger.info(f"Gemini : Réponse JSON complète reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
-        return skills_json # Retourne les données extraites.
+        return skills_json
 
     except json.JSONDecodeError as e:
-        _current_logger.error(f"Gemini : Erreur de décodage JSON de la réponse : {e}. Réponse complète reçue : {response.text[:1000]}...")
-        return None # Gère les erreurs de parsing JSON.
+        _current_logger.error(f"Gemini : Erreur de décodage JSON de la réponse : {e}. Réponse complète reçue : {response_text[:1000]}...")
+        # En cas d'erreur de parsing, invalider la session pour ce métier pour éviter de propager l'erreur.
+        if job_title_normalized in _active_chat_sessions:
+            del _active_chat_sessions[job_title_normalized]
+        return None
     except Exception as e:
         _current_logger.error(f"Gemini : Erreur inattendue lors de l'appel à l'API : {e}")
-        return None # Gère les erreurs générales de l'API.
+        # En cas d'erreur, invalider la session pour ce métier.
+        if job_title_normalized in _active_chat_sessions:
+            del _active_chat_sessions[job_title_normalized]
+        return None
+
+# Fonction pour effacer une session de chat spécifique, utile si une analyse est annulée ou terminée.
+def clear_chat_session(job_title_normalized: str):
+    """Supprime une session de chat active du stockage."""
+    global _active_chat_sessions
+    if job_title_normalized in _active_chat_sessions:
+        del _active_chat_sessions[job_title_normalized]
+        _current_logger.info(f"Session de chat pour '{job_title_normalized}' effacée.")
