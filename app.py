@@ -21,7 +21,7 @@ from src.cache_manager import flush_all_cache
 NB_OFFERS_TO_ANALYZE = 100 # Définit le nombre d'offres d'emploi à analyser par défaut.
 
 # Détermine si l'application est en mode production pour contrôler l'affichage des logs UI.
-IS_PRODUCTION_MODE = os.getenv('PRODUCTION_MODE', 'true').lower() in ('true', '1')
+IS_PRODUCTION_MODE = os.getenv('PRODUCTION_MODE', 'false').lower() in ('true', '1')
 
 # --- Stockage Global pour l'Export ---
 # Ce dictionnaire stocke temporairement les données d'export par ID de session client.
@@ -293,7 +293,7 @@ def main_page(client: Client):
     # --- En-tête de l'Application ---
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-center'):
-            ui.image('/assets/SkillScope.svg').classes('w-40 md:w-48') # Affiche le logo de l'application.
+            ui.image('/assets/SkillScope.svg').classes('h-auto max-w-full object-contain w-40 md:w-48')
 
     # --- Contenu Principal de la Page ---
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
