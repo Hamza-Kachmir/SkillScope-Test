@@ -10,6 +10,9 @@ from nicegui import ui, app, run, Client
 from starlette.responses import Response
 from starlette.requests import Request
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+
 
 # Ajoute le répertoire 'src' au chemin pour permettre les imports locaux.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
