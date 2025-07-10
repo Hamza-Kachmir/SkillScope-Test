@@ -1,3 +1,4 @@
+# src/gemini_extractor.py
 import google.generativeai as genai
 from google.oauth2 import service_account
 import logging
@@ -20,13 +21,13 @@ def _load_prompt_from_file() -> Optional[str]:
     """Charge le template du prompt depuis le fichier prompt.md."""
     try:
         with open(PROMPT_FILE_PATH, 'r', encoding='utf-8') as f:
-            _current_logger.info(f"Gemini : Prompt chargé avec succès depuis '{PROMPT_FILE_PATH}'.")
+            _current_logger.info(f"Gemini (Extractor) : Prompt chargé avec succès depuis '{PROMPT_FILE_PATH}'.")
             return f.read() # Retourne le contenu du fichier.
     except FileNotFoundError:
-        _current_logger.critical(f"Gemini : Fichier de prompt non trouvé à l'emplacement '{PROMPT_FILE_PATH}' !")
+        _current_logger.critical(f"Gemini (Extractor) : Fichier de prompt non trouvé à l'emplacement '{PROMPT_FILE_PATH}' !")
         return None # Retourne None si le fichier n'est pas trouvé.
     except Exception as e:
-        _current_logger.critical(f"Gemini : Erreur lors de la lecture du fichier de prompt : {e}")
+        _current_logger.critical(f"Gemini (Extractor) : Erreur lors de la lecture du fichier de prompt : {e}")
         return None # Gère les autres erreurs de lecture.
 
 def initialize_gemini(logger: logging.Logger) -> bool:
@@ -51,7 +52,7 @@ def initialize_gemini(logger: logging.Logger) -> bool:
     if not model:
         google_creds_json = os.getenv('GOOGLE_CREDENTIALS') # Récupère les identifiants Google Cloud.
         if not google_creds_json:
-            _current_logger.critical("Gemini : La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
+            _current_logger.critical("Gemini (Extractor) : La variable d'environnement GOOGLE_CREDENTIALS n'est pas définie !")
             return False # Échec si les identifiants sont manquants.
 
         try:
@@ -62,10 +63,10 @@ def initialize_gemini(logger: logging.Logger) -> bool:
             generation_config = {"temperature": 0.0, "response_mime_type": "application/json"} # Configure la génération pour un JSON déterministe.
 
             model = genai.GenerativeModel(MODEL_NAME, generation_config=generation_config) # Crée l'instance du modèle Gemini.
-            _current_logger.info(f"Gemini : Client '{MODEL_NAME}' initialisé avec succès.")
+            _current_logger.info(f"Gemini (Extractor) : Client '{MODEL_NAME}' initialisé avec succès.")
             return True # Succès de l'initialisation.
         except Exception as e:
-            _current_logger.critical(f"Gemini : Échec de l'initialisation de Gemini : {e}")
+            _current_logger.critical(f"Gemini (Extractor) : Échec de l'initialisation de Gemini : {e}")
             return False # Gère les erreurs d'initialisation du modèle.
 
     return True
@@ -79,7 +80,8 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
 
     # Vérifie si le modèle et le prompt sont initialisés avant de procéder.
     if not model or not prompt_template:
-        _current_logger.error("Gemini : Tentative d'appel à Gemini sans initialisation préalable.")
+        _current_logger.error("Gemini (Extractor) : Tentative d'appel à Gemini sans initialisation préalable.")
+        # Tente de réinitialiser au cas où, mais n'échoue pas silencieusement.
         if not initialize_gemini(logger):
             return None # Retourne None si l'initialisation échoue.
 
@@ -87,7 +89,7 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
     indexed_descriptions = "\n---\n".join([f"{i}: {desc}" for i, desc in enumerate(descriptions)])
     full_prompt = prompt_template.format(indexed_descriptions=indexed_descriptions) # Construit le prompt complet.
 
-    _current_logger.info(f"Gemini : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}').")
+    _current_logger.info(f"Gemini (Extractor) : Envoi de {len(descriptions)} descriptions au modèle (lot pour '{job_title}').")
 
     try:
         response = await model.generate_content_async(full_prompt) # Appelle l'API Gemini de manière asynchrone.
@@ -95,12 +97,12 @@ async def extract_skills_with_gemini(job_title: str, descriptions: List[str], lo
         cleaned_text = response.text.replace(r"\'", "'") # Nettoie la réponse pour corriger les échappements.
         skills_json = json.loads(cleaned_text) # Parse la réponse JSON.
 
-        _current_logger.info(f"Gemini : Réponse JSON complète reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
+        _current_logger.info(f"Gemini (Extractor) : Réponse JSON complète reçue et parsée avec succès pour ce lot ({len(descriptions)} descriptions).")
         return skills_json # Retourne les données extraites.
 
     except json.JSONDecodeError as e:
-        _current_logger.error(f"Gemini : Erreur de décodage JSON de la réponse : {e}. Réponse complète reçue : {response.text[:1000]}...")
+        _current_logger.error(f"Gemini (Extractor) : Erreur de décodage JSON de la réponse : {e}. Réponse complète reçue : {response.text[:1000]}...")
         return None # Gère les erreurs de parsing JSON.
     except Exception as e:
-        _current_logger.error(f"Gemini : Erreur inattendue lors de l'appel à l'API : {e}")
+        _current_logger.error(f"Gemini (Extractor) : Erreur inattendue lors de l'appel à l'API : {e}")
         return None # Gère les erreurs générales de l'API.
