@@ -21,8 +21,7 @@ from src.cache_manager import flush_all_cache
 NB_OFFERS_TO_ANALYZE = 100 # Définit le nombre d'offres d'emploi à analyser par défaut.
 
 # Détermine si l'application est en mode production pour contrôler l'affichage des logs UI.
-# MODIFICATION : Passé à False pour afficher les logs en mode test/développement.
-IS_PRODUCTION_MODE = False
+IS_PRODUCTION_MODE = os.getenv('PRODUCTION_MODE', 'true').lower() in ('true', '1')
 
 # --- Stockage Global pour l'Export ---
 # Ce dictionnaire stocke temporairement les données d'export par ID de session client.
@@ -66,8 +65,6 @@ class UiLogHandler(logging.Handler):
             # Pousse le log vers l'élément ui.log si en mode non-production et connecté.
             if not IS_PRODUCTION_MODE and self.log_element and hasattr(self.log_element, 'push') and self.log_element.client.has_socket_connection:
                 self.log_element.push(msg)
-            elif IS_PRODUCTION_MODE: # Toujours afficher en console en mode production pour les logs critiques
-                print(msg) # Simple print pour les logs en prod si pas d'UI log
 
         except Exception as e:
             print(f"Erreur dans UiLogHandler: {e}")
@@ -296,9 +293,7 @@ def main_page(client: Client):
     # --- En-tête de l'Application ---
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-center'):
-            # MODIFICATION : Ajout de classes pour le redimensionnement responsif du logo
-            ui.image('/assets/SkillScope.svg').classes('w-32 md:w-40 lg:w-48 xl:w-56 object-contain h-auto') # Affiche le logo de l'application.
-
+            ui.image('/assets/SkillScope.svg').classes('w-40 md:w-48') # Affiche le logo de l'application.
 
     # --- Contenu Principal de la Page ---
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 md:p-8 items-center gap-4'):
