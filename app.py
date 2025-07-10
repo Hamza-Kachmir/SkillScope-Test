@@ -24,11 +24,11 @@ NB_OFFERS_TO_ANALYZE = 100 # Définit le nombre d'offres d'emploi à analyser pa
 IS_PRODUCTION_MODE = os.getenv('PRODUCTION_MODE', 'false').lower() in ('true', '1') # Changé à 'false' par défaut pour le développement
 
 # --- Stockage Global pour l'Export ---
-# [cite_start]Ce dictionnaire stocke temporairement les données d'export par ID de session client. [cite: 1]
+# Ce dictionnaire stocke temporairement les données d'export par ID de session client.
 _export_data_storage: Dict[str, Dict[str, Any]] = {}
 
 # --- Verrouillage des Recherches Concurrentes ---
-# [cite_start]Ce dictionnaire gère les recherches de métiers déjà en cours pour éviter les requêtes redondantes. [cite: 1]
+# Ce dictionnaire gère les recherches de métiers déjà en cours pour éviter les requêtes redondantes.
 _active_searches: Dict[str, asyncio.Future] = {}
 
 def _normalize_search_term(term: str) -> str:
@@ -36,8 +36,8 @@ def _normalize_search_term(term: str) -> str:
     Normalise une chaîne de caractères pour une utilisation cohérente comme clé de recherche ou de cache.
     Cette fonction convertit le terme en minuscules, supprime les accents et les espaces superflus.
     """
-    [cite_start]normalized_term = unicodedata.normalize('NFKD', term) # Normalise les caractères Unicode. [cite: 1]
-    [cite_start]normalized_term = normalized_term.encode('ascii', 'ignore').decode('utf-8').lower().strip() # Supprime les accents et met en minuscules. [cite: 1]
+    normalized_term = unicodedata.normalize('NFKD', term) # Normalise les caractères Unicode.
+    normalized_term = normalized_term.encode('ascii', 'ignore').decode('utf-8').lower().strip() # Supprime les accents et met en minuscules.
     return normalized_term
 
 
@@ -51,18 +51,18 @@ class UiLogHandler(logging.Handler):
         super().__init__()
         self.log_element = log_element
         self.log_messages_list = log_messages_list
-        # [cite_start]Définit le format des messages de log affichés dans l'UI développeur. [cite: 1]
+        # Définit le format des messages de log affichés dans l'UI développeur.
         self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
 
     def emit(self, record):
         """
-        [cite_start]Formate un enregistrement de log et l'affiche dans l'interface utilisateur en mode non-production. [cite: 1]
+        Formate un enregistrement de log et l'affiche dans l'interface utilisateur en mode non-production.
         """
         try:
             msg = self.format(record)
             self.log_messages_list.append(msg)
 
-            # [cite_start]Pousse le log vers l'élément ui.log si en mode non-production et connecté. [cite: 1]
+            # Pousse le log vers l'élément ui.log si en mode non-production et connecté.
             if not IS_PRODUCTION_MODE and self.log_element and hasattr(self.log_element, 'push') and self.log_element.client.has_socket_connection:
                 self.log_element.push(msg)
 
@@ -74,8 +74,8 @@ class UiLogHandler(logging.Handler):
 @app.get('/download/excel/{client_id}')
 def download_excel_endpoint(client_id: str):
     """
-    [cite_start]Point de terminaison FastAPI pour télécharger les résultats de l'analyse au format Excel. [cite: 1]
-    [cite_start]L'ID du client est utilisé pour récupérer les données spécifiques à la session utilisateur. [cite: 1]
+    Point de terminaison FastAPI pour télécharger les résultats de l'analyse au format Excel.
+    L'ID du client est utilisé pour récupérer les données spécifiques à la session utilisateur.
     """
     if client_id not in _export_data_storage:
         logging.warning(f"Export Excel demandé pour un client_id inconnu ou expiré: {client_id}")
@@ -106,8 +106,8 @@ def download_excel_endpoint(client_id: str):
 @app.get('/download/csv/{client_id}')
 def download_csv_endpoint(client_id: str):
     """
-    [cite_start]Point de terminaison FastAPI pour télécharger les résultats de l'analyse au format CSV. [cite: 1]
-    [cite_start]L'ID du client est utilisé pour récupérer les données spécifiques à la session utilisateur. [cite: 1]
+    Point de terminaison FastAPI pour télécharger les résultats de l'analyse au format CSV.
+    L'ID du client est utilisé pour récupérer les données spécifiques à la session utilisateur.
     """
     if client_id not in _export_data_storage:
         logging.warning(f"Export CSV demandé pour un client_id inconnu ou expiré: {client_id}")
@@ -223,8 +223,8 @@ async def _update_ui_with_results(results_dict: Dict[str, Any], job_title_origin
 @ui.page('/')
 def main_page(client: Client):
     """
-    [cite_start]Construit et configure la page principale de l'application SkillScope. [cite: 1]
-    [cite_start]Cette fonction est exécutée une fois par nouvelle session utilisateur. [cite: 1]
+    Construit et configure la page principale de l'application SkillScope.
+    Cette fonction est exécutée une fois par nouvelle session utilisateur.
     """
     job_input: ui.input = None
     results_container: ui.column = None
@@ -236,18 +236,18 @@ def main_page(client: Client):
     log_view: ui.log = None
     all_log_messages: List[str] = []
 
-    # [cite_start]Configure un logger spécifique pour cette session utilisateur afin d'isoler les logs. [cite: 1]
+    # Configure un logger spécifique pour cette session utilisateur afin d'isoler les logs.
     session_logger = logging.getLogger(f"session_logger_{id(client)}")
-    [cite_start]session_logger.handlers.clear() # S'assure qu'aucun ancien handler n'est attaché. [cite: 1]
-    [cite_start]session_logger.setLevel(logging.INFO) # Définit le niveau de log à INFO pour un suivi détaillé. [cite: 1]
+    session_logger.handlers.clear() # S'assure qu'aucun ancien handler n'est attaché.
+    session_logger.setLevel(logging.INFO) # Définit le niveau de log à INFO pour un suivi détaillé.
 
-    # [cite_start]Configure le logger racine pour la propagation des messages vers la console du serveur. [cite: 1]
+    # Configure le logger racine pour la propagation des messages vers la console du serveur.
     root_logger = logging.getLogger()
-    [cite_start]if not root_logger.handlers: # Ajoute un handler de console seulement si aucun n'est déjà présent. [cite: 1]
+    if not root_logger.handlers: # Ajoute un handler de console seulement si aucun n'est déjà présent.
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
         root_logger.addHandler(console_handler)
-    [cite_start]root_logger.setLevel(logging.INFO) # Définit le niveau minimum de log pour le logger racine. [cite: 1]
+    root_logger.setLevel(logging.INFO) # Définit le niveau minimum de log pour le logger racine.
 
 
     # --- Configuration du HTML Head et Styles CSS Globaux ---
@@ -265,13 +265,13 @@ def main_page(client: Client):
             }
         </style>
     ''')
-    [cite_start]app.add_static_files('/assets', 'assets') # Sert les fichiers statiques (ex: logo SkillScope.svg). [cite: 1]
-    [cite_start]ui.query('body').style('background-color: #f8fafc;') # Définit la couleur de fond du corps de la page. [cite: 1]
+    app.add_static_files('/assets', 'assets') # Sert les fichiers statiques (ex: logo SkillScope.svg).
+    ui.query('body').style('background-color: #f8fafc;') # Définit la couleur de fond du corps de la page.
 
     # --- En-tête de l'Application ---
     with ui.header(elevated=True).classes('bg-white text-black px-4'):
         with ui.row().classes('w-full items-center justify-center'):
-            # [cite_start]Logo ajusté [cite: 1]
+            # Logo ajusté
             ui.image('/assets/SkillScope.svg').classes('h-auto max-w-full object-contain w-40 md:w-48')
 
 
@@ -354,11 +354,11 @@ def main_page(client: Client):
 
         async def handle_analysis_click():
             """
-            [cite_start]Gère l'événement de clic sur le bouton d'analyse, lançant le pipeline et affichant les résultats. [cite: 1]
-            [cite_start]Cette fonction gère également les recherches concurrentes pour un même terme. [cite: 1]
+            Gère l'événement de clic sur le bouton d'analyse, lançant le pipeline et affichant les résultats.
+            Cette fonction gère également les recherches concurrentes pour un même terme.
             """
-            [cite_start]original_job_term = job_input.value # Récupère le terme tel qu'entré par l'utilisateur. [cite: 1]
-            [cite_start]normalized_job_term = _normalize_search_term(original_job_term) # Normalise le terme pour la logique interne et le cache. [cite: 1]
+            original_job_term = job_input.value # Récupère le terme tel qu'entré par l'utilisateur.
+            normalized_job_term = _normalize_search_term(original_job_term) # Normalise le terme pour la logique interne et le cache.
 
             session_logger.info(f"Déclenchement d'une nouvelle analyse pour '{original_job_term}'.")
 
@@ -366,14 +366,14 @@ def main_page(client: Client):
                 session_logger.warning("Analyse annulée : aucun métier n'a été entré.")
                 return
 
-            # [cite_start]Vérifie si une recherche pour ce métier (normalisé) est déjà en cours. [cite: 1]
+            # Vérifie si une recherche pour ce métier (normalisé) est déjà en cours.
             if normalized_job_term in _active_searches:
                 session_logger.info(f"Recherche pour '{normalized_job_term}' déjà en cours; l'utilisateur patiente.")
                 initial_feedback_container.visible = True
                 loading_label.content = f"Une analyse pour <strong>'{original_job_term}'</strong> est déjà en cours. Veuillez patienter..."
                 return
 
-            # [cite_start]Crée une future pour représenter la recherche en cours et l'ajoute au dictionnaire des recherches actives. [cite: 1]
+            # Crée une future pour représenter la recherche en cours et l'ajoute au dictionnaire des recherches actives.
             search_future = asyncio.Future()
             _active_searches[normalized_job_term] = search_future
 
@@ -388,7 +388,7 @@ def main_page(client: Client):
                 loading_label.content = f"Analyse en cours pour <strong>'{original_job_term}'</strong>..."
                 main_table.visible = False # Masquer le tableau au début
 
-                # [cite_start]Attache le handler de log de l'UI (pour les logs techniques du développeur) si en mode non-production. [cite: 1]
+                # Attache le handler de log de l'UI (pour les logs techniques du développeur) si en mode non-production.
                 if not IS_PRODUCTION_MODE:
                     ui_log_handler_instance = UiLogHandler(log_view, all_log_messages)
                     session_logger.addHandler(ui_log_handler_instance)
@@ -419,11 +419,11 @@ def main_page(client: Client):
                 loading_spinner.visible = False
                 loading_label.content = f"Une erreur est survenue lors de l'analyse : {e}"
             finally:
-                # [cite_start]Détache le handler temporaire si il a été créé et attaché. [cite: 1]
+                # Détache le handler temporaire si il a été créé et attaché.
                 if ui_log_handler_instance is not None and ui_log_handler_instance in session_logger.handlers:
                     session_logger.removeHandler(ui_log_handler_instance)
 
-                # [cite_start]Marque la Future comme terminée et retire le verrou. [cite: 1]
+                # Marque la Future comme terminée et retire le verrou.
                 if not search_future.done():
                     search_future.set_result(True)
                 if normalized_job_term in _active_searches:
@@ -434,7 +434,7 @@ def main_page(client: Client):
 
         launch_button = ui.button("Lancer l'analyse", on_click=handle_analysis_click).props('color=primary').classes('w-full max-w-lg mt-4')
 
-        # [cite_start]Active le bouton de lancement uniquement si le champ d'entrée contient une valeur. [cite: 1]
+        # Active le bouton de lancement uniquement si le champ d'entrée contient une valeur.
         launch_button.bind_enabled_from(job_input, 'value', backward=bool)
 
         # Le results_container est défini plus haut et contient les éléments dynamiques
@@ -448,17 +448,17 @@ def main_page(client: Client):
 
 
         # --- Section "Logs & Outils" (visible ou masquée selon IS_PRODUCTION_MODE) ---
-        [cite_start]if not IS_PRODUCTION_MODE: # Cette section est affichée uniquement en mode non-production pour le débogage. [cite: 1]
+        if not IS_PRODUCTION_MODE: # Cette section est affichée uniquement en mode non-production pour le débogage.
             with ui.expansion("Voir les logs & Outils", icon='o_code').classes('w-full mt-12 bg-gray-50 rounded-lg'):
                 with ui.column().classes('w-full p-2'):
-                    [cite_start]log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs') # Affiche les logs de session. [cite: 1]
+                    log_view = ui.log().classes('w-full h-40 bg-gray-800 text-white font-mono text-xs') # Affiche les logs de session.
                     with ui.row().classes('mt-2 gap-2'):
-                        [cite_start]ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever') # Bouton pour vider le cache. [cite: 1]
-                        [cite_start]ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy') # Bouton pour copier les logs. [cite: 1]
+                        ui.button('Vider tout le cache', on_click=lambda: (flush_all_cache(), ui.notify('Cache vidé avec succès !', color='positive')), color='red-6', icon='o_delete_forever') # Bouton pour vider le cache.
+                        ui.button('Copier les logs', on_click=lambda: ui.run_javascript(f'navigator.clipboard.writeText(`{"\\n".join(all_log_messages)}`)'), icon='o_content_copy') # Bouton pour copier les logs.
 
-                    [cite_start]session_logger.addHandler(UiLogHandler(log_view, all_log_messages)) # Attache le gestionnaire de log personnalisé à ce logger de session. [cite: 1]
+                    session_logger.addHandler(UiLogHandler(log_view, all_log_messages)) # Attache le gestionnaire de log personnalisé à ce logger de session.
 
 
 if __name__ in {"__main__", "__mp_main__"}:
-    [cite_start]port = int(os.environ.get('PORT', 10000)) # Récupère le port depuis les variables d'environnement ou utilise 10000 par défaut. [cite: 1]
-    [cite_start]ui.run(host='0.0.0.0', port=port, title='SkillScope | Analyse de compétences', favicon='assets/SkillScope.svg') # Lance l'application NiceGUI. [cite: 1]
+    port = int(os.environ.get('PORT', 10000)) # Récupère le port depuis les variables d'environnement ou utilise 10000 par défaut.
+    ui.run(host='0.0.0.0', port=port, title='SkillScope | Analyse de compétences', favicon='assets/SkillScope.svg') # Lance l'application NiceGUI.

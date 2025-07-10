@@ -10,7 +10,7 @@ from src.cache_manager import get_cached_results, add_to_cache
 from src.gemini_extractor import extract_skills_with_gemini, initialize_gemini
 
 # Configuration pour l'analyse des offres et les lots Gemini.
-GEMINI_BATCH_SIZE = 10  # Définit la taille des lots de descriptions pour Gemini pour permettre un streaming visuel.
+GEMINI_BATCH_SIZE = 100  # Définit la taille des lots de descriptions pour Gemini pour permettre un streaming visuel.
 TOP_SKILLS_LIMIT = 20 # Nombre maximum de compétences à afficher dans le classement final.
 
 
