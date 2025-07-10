@@ -162,7 +162,7 @@ async def _update_ui_with_results(results_dict: Dict[str, Any], job_title_origin
         loading_label.content = f"Analyse en cours pour <strong>'{job_title_original}'</strong> ({actual_offers} offres traitées)..."
         return # Attendre plus de données pour afficher le tableau
 
-    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)}
+    formatted_skills = [{'classement': i + 1, 'competence': item['skill']} for i, item in enumerate(skills_data)]
     df = pd.DataFrame(formatted_skills)
 
     # Mise à jour du stockage pour l'exportation SI C'EST LE RÉSULTAT FINAL
